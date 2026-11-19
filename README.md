@@ -184,7 +184,7 @@ Vela 支持接入多种主流 LLM 服务商，以下是快速配置步骤：
 
 `OpenAI` · `DeepSeek` · `Google Gemini` · `Anthropic Claude` · `Ollama (Local)` · `智谱 GLM (Zhipu)` · `MiniMax` · `SiliconFlow` · `Fluxion AI (推荐渠道)` · `Any OpenAI-compatible API`
 
-> 💡 **推荐渠道**：如果没有官方 Key 或想降低成本，可使用 [Fluxion AI](https://fluxionai.space/register?source=github&campaign=vela&promo=VELA)（OpenAI 兼容），在上方第 3 步中选择「自定义 / OpenAI 兼容」，填入 Fluxion AI 的 `Base URL` + `API Key` 即可。注册即送 **$3** 额度。
+> 💡 **自定义渠道**：如果没有官方 Key 或想降低成本，可在上方第 3 步中选择「自定义 / OpenAI 兼容」，填入第三方 OpenAI 兼容服务的 `Base URL` + `API Key` 即可。
 
 ---
 
