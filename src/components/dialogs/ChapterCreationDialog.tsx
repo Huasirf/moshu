@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+﻿import { useState, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Sparkles, Play, AlertCircle } from 'lucide-react'
 import { useProjectStore } from '../../stores/project-store'
@@ -8,6 +8,7 @@ import { useWorkflowStore } from '../../stores/workflow-store'
 import { createChapterWorkflow } from '../../services/workflows/chapter-workflow'
 import { guardChapterWriting } from '../../services/workflow-guards'
 import { ipc } from '../../services/ipc-client'
+import { toChapterScenes, type ChapterScene } from '../../services/blueprint-scenes'
 import { toast } from '../ui/Toast'
 import {
   Dialog, DialogContent, DialogHeader, DialogFooter, DialogTitle, DialogDescription,
@@ -26,7 +27,7 @@ interface Props {
 }
 
 /** 章节创作参数持久化路径（相对于项目路径） */
-const CREATION_LOG_REL = '.vela/chapter_creation_log.json'
+const CREATION_LOG_REL = '.moshu/chapter_creation_log.json'
 
 /** 章节创作对话框 — 配置并启动章节创作工作流（步进式，每步等待用户确认） */
 export default function ChapterCreationDialog({ isOpen, onClose, prefill }: Props) {
@@ -64,7 +65,7 @@ export default function ChapterCreationDialog({ isOpen, onClose, prefill }: Prop
     return unsub
   }, [isOpen, onClose])
 
-  /** 从项目本地 .vela/chapter_creation_log.json 读取上次参数 */
+  /** 从项目本地 .moshu/chapter_creation_log.json 读取上次参数 */
   const loadLastParams = useCallback(async () => {
     if (!currentProject) return
     try {
@@ -114,7 +115,7 @@ export default function ChapterCreationDialog({ isOpen, onClose, prefill }: Prop
         setKeyEvents(String(prefill.keyEvents || ''))
         setCharacters(String(prefill.characters || ''))
         setUserGuidance(String(prefill.userGuidance || ''))
-        setWordsTarget(currentProject.novelConfig.wordsPerChapter || 3000)
+        setWordsTarget(Number(prefill.wordsTarget) || currentProject.novelConfig.wordsPerChapter || 3000)
         setLoadedFromBlueprint(true)
         setLoadedFromHistory(false)
       } else {
@@ -176,6 +177,17 @@ export default function ChapterCreationDialog({ isOpen, onClose, prefill }: Prop
     // 持久化本次参数
     await saveParams()
 
+    // 从章节蓝图补齐场景拆解：场景锁（大/小场景）、环境配额与两段式生成都依赖 scenes
+    let scenes: ChapterScene[] = []
+    let blueprintWordsTarget: number | undefined
+    try {
+      const bp = await ipc.invoke('db:blueprint-get', targetChapter)
+      if (bp) {
+        scenes = toChapterScenes(bp.scenes as unknown as Parameters<typeof toChapterScenes>[0])
+        blueprintWordsTarget = Number(bp.wordsTarget) || undefined
+      }
+    } catch { /* 蓝图读取失败不阻断写稿 */ }
+
     const workflow = createChapterWorkflow({
       chapterNumber: Number(chapterNumber) || 1,
       title: title || t('chapterCreation.defaultTitle', { chapterNumber: chapterNumber || 1 }),
@@ -185,7 +197,8 @@ export default function ChapterCreationDialog({ isOpen, onClose, prefill }: Prop
       keyEvents,
       userGuidance,
       knowledgeQueryHint: knowledgeHint.trim() || undefined,
-      wordsTarget: Number(wordsTarget) || undefined,
+      wordsTarget: Number(wordsTarget) || blueprintWordsTarget || undefined,
+      scenes,
     })
 
     // 启动任务后关闭设定弹窗，由全局 Overlay 接管展示

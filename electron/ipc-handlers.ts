@@ -1,4 +1,5 @@
-import { ensureVelaHome, VELA_HOME } from './utils/config-utils'
+﻿import { ensureMoshuHome, MOSHU_HOME } from './utils/config-utils'
+import { migrateLegacyGlobalHome } from './utils/legacy-migration'
 
 import { registerConfigController } from './controllers/config-controller'
 import { registerProjectController } from './controllers/project-controller'
@@ -14,8 +15,10 @@ import { registerImageController } from './controllers/image-controller'
  * (采用多控制器路由模式，解耦各个模块的庞大逻辑)
  */
 export function registerIPCHandlers() {
+  // 存量全局配置：~/.vela → ~/.moshu（复制不移动，必须在 ensureMoshuHome 之前）
+  migrateLegacyGlobalHome()
   // 确保全局配置目录结构存在
-  ensureVelaHome()
+  ensureMoshuHome()
 
   // 挂载控制器路由
   registerConfigController()
@@ -27,5 +30,5 @@ export function registerIPCHandlers() {
   registerImportController()
   registerImageController()
 
-  console.log(`[Vela IPC] 所有 Controller 已注册完成 | 全局工作区: ${VELA_HOME}`)
+  console.log(`[MoShu IPC] 所有 Controller 已注册完成 | 全局工作区: ${MOSHU_HOME}`)
 }

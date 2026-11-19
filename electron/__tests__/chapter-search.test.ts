@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+﻿import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -34,7 +34,7 @@ describe('全局搜索：各章代表稿', () => {
   let projectDir: string
 
   beforeEach(() => {
-    projectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'vela-search-'))
+    projectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moshu-search-'))
     initProjectDatabase(projectDir)
   })
 

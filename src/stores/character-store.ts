@@ -32,7 +32,8 @@ export const EMPTY_CARD: CharacterCard = {
 
 export const EMPTY_STATE: CharacterCurrentState = {
   location: '', powerLevel: '', physicalState: '', mentalState: '',
-  keyItems: '', recentEvents: '', knownInfo: '', updatedAtChapter: 0,
+  keyItems: '', recentEvents: '', knownInfo: '',
+  talents: [], skills: [], updatedAtChapter: 0,
 }
 
 export const ROLE_LABELS: Record<CharacterCard['role'], string> = {

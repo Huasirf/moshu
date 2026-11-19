@@ -1,8 +1,10 @@
 import { ipcMain, BrowserWindow } from 'electron'
 import { readJsonFile, writeJsonFile, GLOBAL_CONFIG_PATH, DEFAULT_GLOBAL_CONFIG } from '../utils/config-utils'
-import { ModelProfile, GlobalConfig } from '../../src/shared/ipc-channels'
+import { ModelProfile, GlobalConfig, ThinkingLevel } from '../../src/shared/ipc-channels'
 import { LLMFactory } from '../llm/llm-factory'
 import { listOllamaModels } from '../llm/ollama-models'
+import { discoverModels } from '../llm/model-discovery'
+import { resolveThinkingLevel } from '../llm/thinking'
 import { modelStore, ModelKeyError } from '../model-store'
 import { stripCacheMarkers } from '../../src/shared/prompt-cache'
 
@@ -56,7 +58,30 @@ export function registerLLMController() {
       return { success: false, models: [], error: code }
     }
   })
-  ipcMain.handle('llm:generate', async (_event, request: { modelId: string; messages: Array<{ role: string; content: string }>; temperature?: number; maxTokens?: number; responseFormat?: { type: string }; thinking?: boolean }) => {
+  ipcMain.handle('llm:discover-models', async (_event, input: { id?: string; protocol: ModelProfile['protocol']; provider?: ModelProfile['provider']; baseUrl: string; apiKey?: string }) => {
+    try {
+      applyProxyConfig()
+      // 表单里的 Key 是打码值时换成已保存的 Key（接口地址改过则要求重新填写，避免把 Key 发往任意地址）
+      const resolvedKey = modelStore.resolveIncoming({
+        id: input?.id ?? '',
+        baseUrl: input?.baseUrl ?? '',
+        apiKey: input?.apiKey ?? '',
+      }).apiKey
+      const models = await discoverModels({
+        protocol: input.protocol,
+        provider: input.provider,
+        baseUrl: input.baseUrl,
+        apiKey: resolvedKey,
+      })
+      return { success: true, models }
+    } catch (error) {
+      if (error instanceof ModelKeyError) return { success: false, models: [], error: error.message }
+      const message = error instanceof Error ? error.message : String(error)
+      return { success: false, models: [], error: message }
+    }
+  })
+
+  ipcMain.handle('llm:generate', async (_event, request: { modelId: string; messages: Array<{ role: string; content: string }>; temperature?: number; maxTokens?: number; responseFormat?: { type: string }; thinking?: boolean | ThinkingLevel }) => {
     try {
       applyProxyConfig()
       const model = getModelConfig(request.modelId)
@@ -67,14 +92,14 @@ export function registerLLMController() {
         temperature: request.temperature ?? model.temperature,
         maxTokens: request.maxTokens ?? model.maxTokens,
         responseFormat: request.responseFormat,
-        thinking: request.thinking,
+        thinking: resolveThinkingLevel(model, request.thinking),
       })
     } catch (error) {
       return { success: false, content: '', error: String(error) }
     }
   })
 
-  ipcMain.handle('llm:generate-stream', async (event, requestId: string, request: { modelId: string; messages: Array<{ role: string; content: string }>; temperature?: number; maxTokens?: number; responseFormat?: { type: string }; thinking?: boolean }) => {
+  ipcMain.handle('llm:generate-stream', async (event, requestId: string, request: { modelId: string; messages: Array<{ role: string; content: string }>; temperature?: number; maxTokens?: number; responseFormat?: { type: string }; thinking?: boolean | ThinkingLevel }) => {
     applyProxyConfig()
     const model = getModelConfig(request.modelId)
     if (!model) return { requestId, started: false }
@@ -84,13 +109,13 @@ export function registerLLMController() {
     const win = BrowserWindow.fromWebContents(event.sender)
 
     const provider = LLMFactory.getProvider(model)
-    
+
     // We do not await this globally since it's streaming independently
     provider.generateStream(model, prepareMessages(model, request.messages), {
       temperature: request.temperature ?? model.temperature,
       maxTokens: request.maxTokens ?? model.maxTokens,
       responseFormat: request.responseFormat,
-      thinking: request.thinking,
+      thinking: resolveThinkingLevel(model, request.thinking),
       signal: abortController.signal,
       onChunk: (chunk: string) => win?.webContents.send('llm:stream-chunk', { requestId, chunk }),
       onDone: (fullText: string, usage?: { promptTokens: number; completionTokens: number; totalTokens: number }) => {

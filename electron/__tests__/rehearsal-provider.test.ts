@@ -16,7 +16,7 @@ describe('explicit thinking control for rehearsal requests', () => {
     )))
     const done = vi.fn(), error = vi.fn()
     await new OpenAIProvider().generateStream(model, [], {
-      temperature: 0.7, maxTokens: 100, thinking: false, signal: new AbortController().signal,
+      temperature: 0.7, maxTokens: 100, thinking: 'off', signal: new AbortController().signal,
       onChunk: vi.fn(), onDone: done, onError: error,
     })
     expect(done).not.toHaveBeenCalled()
@@ -29,10 +29,10 @@ describe('explicit thinking control for rehearsal requests', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(events + 'data: [DONE]\n\n')))
     const done = vi.fn()
     await new OpenAIProvider().generateStream(model, [], {
-      temperature: 0.7, maxTokens: 100, thinking: false, signal: new AbortController().signal,
+      temperature: 0.7, maxTokens: 100, thinking: 'off', signal: new AbortController().signal,
       onChunk: vi.fn(), onDone: done, onError: vi.fn(),
     })
-    expect(done).toHaveBeenCalledExactlyOnceWith('```json\n{"directions":[]}\n```')
+    expect(done).toHaveBeenCalledExactlyOnceWith('```json\n{"directions":[]}\n```', undefined)
   })
 
   it('does not request unsupported structured output from an Ollama cloud model', async () => {
@@ -43,23 +43,23 @@ describe('explicit thinking control for rehearsal requests', () => {
   })
   it('does not expose or accept a response cut off by the output limit', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ choices: [{ finish_reason: 'length', message: { content: '{"message":"半截' } }] }))))
-    const result = await new OpenAIProvider().generate(model, [], { thinking: false, temperature: 0.7, maxTokens: 100 })
+    const result = await new OpenAIProvider().generate(model, [], { thinking: 'off', temperature: 0.7, maxTokens: 100 })
     expect(result.success).toBe(false)
     expect(result.content).toBe('')
     expect(result.error).toContain('结果不完整')
   })
   it('removes an orphan closing thinking delimiter returned by a cloud adapter', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ choices: [{ message: { content: 'Internal reasoning...</think>{"message":"读取章节","toolCall":{"name":"list_chapters","arguments":{}}}' } }] }))))
-    const result = await new OpenAIProvider().generate(model, [], { thinking: false, temperature: 0.7, maxTokens: 100 })
+    const result = await new OpenAIProvider().generate(model, [], { thinking: 'off', temperature: 0.7, maxTokens: 100 })
     expect(JSON.parse(result.content).toolCall.name).toBe('list_chapters')
     expect(result.content).not.toContain('Internal reasoning')
   })
-  it.each(['ollama', 'deepseek', 'openai'] as const)('maps false correctly in %s streaming requests', async provider => {
+  it.each(['ollama', 'deepseek', 'openai'] as const)('maps the off level correctly in %s streaming requests', async provider => {
     const fetchMock = vi.fn().mockResolvedValue(new Response('data: {"choices":[{"delta":{"content":"ok"}}]}\n\ndata: [DONE]\n\n'))
     vi.stubGlobal('fetch', fetchMock)
     const done = vi.fn()
     await new OpenAIProvider().generateStream({ ...model, provider }, [], {
-      temperature: 0.8, maxTokens: 100, thinking: false, signal: new AbortController().signal,
+      temperature: 0.8, maxTokens: 100, thinking: 'off', signal: new AbortController().signal,
       onChunk: vi.fn(), onDone: done, onError: vi.fn(),
     })
     const body = JSON.parse(fetchMock.mock.calls[0][1].body)
@@ -72,10 +72,10 @@ describe('explicit thinking control for rehearsal requests', () => {
     expect(done.mock.calls[0][0]).toBe('ok')
   })
 
-  it('also respects explicit false in non-streaming generation', async () => {
+  it('also respects the off level in non-streaming generation', async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ choices: [{ message: { content: 'ok' } }] })))
     vi.stubGlobal('fetch', fetchMock)
-    await new OpenAIProvider().generate(model, [], { temperature: 0.8, maxTokens: 100, thinking: false })
+    await new OpenAIProvider().generate(model, [], { temperature: 0.8, maxTokens: 100, thinking: 'off' })
     expect(JSON.parse(fetchMock.mock.calls[0][1].body).reasoning_effort).toBe('none')
   })
 })

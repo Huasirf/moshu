@@ -1,4 +1,4 @@
-import React from 'react'
+﻿import React from 'react'
 import { createRoot } from 'react-dom/client'
 import '../../src/index.css'
 import i18n from '../../src/i18n'
@@ -9,7 +9,7 @@ import { useAgentStore } from '../../src/stores/agent-store'
 
 const params = new URLSearchParams(location.search)
 document.documentElement.className = params.get('theme') || 'dark'
-if (params.has('fresh')) localStorage.removeItem('vela-feature-tour-v1')
+if (params.has('fresh')) localStorage.removeItem('moshu-feature-tour-v1')
 useAgentStore.setState({ generating: params.has('busy') })
 const test = {
   copied: '', copyFailed: false,

@@ -1,5 +1,5 @@
-/**
- * Vela Spacing Scale
+﻿/**
+ * 墨枢 Spacing Scale
  *
  * Usage:
  *   import { spacing } from '@/tokens/spacing'

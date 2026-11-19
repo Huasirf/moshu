@@ -1,4 +1,4 @@
-import { create } from 'zustand'
+﻿import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
 import { useProjectStore } from './project-store'
 import { assertStoryProject } from '../services/agent/story-revision-service'
@@ -406,9 +406,6 @@ export const useAgentStore = create<AgentState>()(persist((set, get) => ({
         return
       }
 
-      // 构建系统提示词（包含项目上下文 + Tool 列表）
-      const systemPrompt = buildAgentSystemPrompt(currentConv.mode)
-
       // ===== P1-5: @ 提及预取 =====
       let enrichedUserMessage = content.trim()
       const mentions = parseMentions(enrichedUserMessage)
@@ -433,6 +430,9 @@ export const useAgentStore = create<AgentState>()(persist((set, get) => ({
         }
       }
 
+      // 构建系统提示词（包含项目上下文 + Tool 列表 + 技能路由）
+      const systemPrompt = buildAgentSystemPrompt(currentConv.mode, content)
+
       // 构造历史消息（取最近 16 条非流式消息）
       const historyMessages: LLMMessage[] = currentConv.messages
         .filter(m => !m.streaming && m.role !== 'system' && m.id !== userMsg.id)
@@ -449,7 +449,7 @@ export const useAgentStore = create<AgentState>()(persist((set, get) => ({
           thinking: false,
           responseFormat: { type: 'json_object' as const },
         }
-        const response = await (window as unknown as { velaAPI: { invoke: (ch: string, ...args: unknown[]) => Promise<unknown> } }).velaAPI.invoke('llm:generate', request)
+        const response = await (window as unknown as { moshuAPI: { invoke: (ch: string, ...args: unknown[]) => Promise<unknown> } }).moshuAPI.invoke('llm:generate', request)
         const res = response as { success: boolean; content: string; error?: string }
         if (!res.success) {
           throw new Error(res.error ?? 'LLM 生成失败')
@@ -601,7 +601,7 @@ export const useAgentStore = create<AgentState>()(persist((set, get) => ({
     }
   },
 }), {
-  name: 'vela-author-conversations-v1',
+  name: 'moshu-author-conversations-v1',
   storage: createJSONStorage(() => ({
     getItem: () => ipc.invoke('agent:state-read'),
     setItem: async (_name, value) => {

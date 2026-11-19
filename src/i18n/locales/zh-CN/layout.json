@@ -15,8 +15,6 @@
     "themeLabel": "主题: {{theme}}"
   },
   "statusBar": {
-    "supportAuthor": "❤️ 支持作者",
-    "sponsorTooltip": "商业合作与赞助支持",
     "currentModel": "当前模型：{{name}}",
     "clickToConfigModel": "点击配置模型",
     "noModel": "未配置模型",
@@ -31,9 +29,12 @@
     "project": "项目",
     "knowledge": "知识库",
     "characters": "角色",
+    "assets": "资产库",
+    "status": "现状面板",
     "foreshadowing": "伏笔台账",
     "timeline": "故事时间线",
     "search": "全局搜索（Ctrl+Shift+F）",
+    "outline": "大纲树",
     "settings": "设置",
     "agent": "AI 助手",
     "projectManagement": "项目管理",

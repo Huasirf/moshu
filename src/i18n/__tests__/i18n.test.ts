@@ -9,8 +9,8 @@
  * - Namespace isolation
  * - JSON file validity
  */
-import { describe, it, expect, beforeEach } from 'vitest'
-import i18n from '../index'
+import { describe, it, expect, beforeEach, beforeAll } from 'vitest'
+import i18n, { ensureLocale } from '../index'
 
 // Import all translation files directly for validation
 import zhCNCommon from '../locales/zh-CN/common.json'
@@ -44,6 +44,11 @@ import ruSettings from '../locales/ru/settings.json'
 import ruCommands from '../locales/ru/commands.json'
 
 const NAMESPACES = ['common', 'dialogs', 'editors', 'panels', 'layout', 'pages', 'stores', 'settings', 'commands'] as const
+
+// en / ru 资源改为按需加载（P8-3），测试里显式预热，语言切换用例才有资源可用
+beforeAll(async () => {
+  await Promise.all([ensureLocale('en'), ensureLocale('ru')])
+})
 
 const ZH_CN_FILES: Record<string, Record<string, unknown>> = {
   common: zhCNCommon,
@@ -352,7 +357,7 @@ describe('Layout Translation Keys', () => {
 
   it('should have status bar labels', () => {
     expect(i18n.t('statusBar.noModel', { ns: 'layout' })).toBeDefined()
-    expect(i18n.t('statusBar.supportAuthor', { ns: 'layout' })).toBeDefined()
+    expect(i18n.t('statusBar.currentModel', { ns: 'layout', name: 'x' })).toBeDefined()
   })
 })
 
@@ -362,7 +367,7 @@ describe('Pages Translation Keys', () => {
   })
 
   it('should have welcome page text in zh-CN', () => {
-    expect(i18n.t('welcome.title', { ns: 'pages' })).toBe('欢迎使用 Vela')
+    expect(i18n.t('welcome.title', { ns: 'pages' })).toBe('欢迎使用 墨枢')
     expect(i18n.t('welcome.subtitle', { ns: 'pages' })).toBe('AI 深度驱动的小说创作 IDE')
     expect(i18n.t('welcome.newProject', { ns: 'pages' })).toBe('新建项目')
     expect(i18n.t('welcome.openProject', { ns: 'pages' })).toBe('打开项目')
@@ -371,7 +376,7 @@ describe('Pages Translation Keys', () => {
 
   it('should have welcome page text in en', async () => {
     await i18n.changeLanguage('en')
-    expect(i18n.t('welcome.title', { ns: 'pages' })).toBe('Welcome to Vela')
+    expect(i18n.t('welcome.title', { ns: 'pages' })).toBe('Welcome to MoShu')
     expect(i18n.t('welcome.subtitle', { ns: 'pages' })).toBe('AI-powered novel writing IDE')
     expect(i18n.t('welcome.newProject', { ns: 'pages' })).toBe('New Project')
     expect(i18n.t('welcome.openProject', { ns: 'pages' })).toBe('Open Project')

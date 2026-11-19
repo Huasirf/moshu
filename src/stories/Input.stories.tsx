@@ -1,8 +1,8 @@
-import type { Meta, StoryObj } from '@storybook/react' // eslint-disable-line storybook/no-renderer-packages
+﻿import type { Meta, StoryObj } from '@storybook/react' // eslint-disable-line storybook/no-renderer-packages
 import { Input } from '../components/ui/Input'
 
 const meta = {
-  title: 'Vela UI/Input',
+  title: 'MoShu UI/Input',
   component: Input,
   tags: ['autodocs'],
   argTypes: {
@@ -21,7 +21,7 @@ const meta = {
   parameters: {
     docs: {
       description: {
-        component: 'Vela input component. Number type has enhanced blur fallback behavior.',
+        component: 'MoShu input component. Number type has enhanced blur fallback behavior.',
       },
     },
   },

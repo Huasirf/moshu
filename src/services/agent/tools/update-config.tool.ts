@@ -11,6 +11,13 @@ import type { StoryReadResult } from '../../../shared/story-revision'
 
 const t = (key: string, opts?: Record<string, unknown>) => i18n.t(key, { ns: 'panels', ...opts })
 
+/** P2-5：运行期白名单（不依赖模型是否遵守 schema enum） */
+const ALLOWED_CONFIG_FIELDS = [
+  'genre', 'subGenre', 'targetAudience', 'totalChapters', 'wordsPerChapter',
+  'coreOutline', 'worldSetting', 'rulebook', 'goldenFinger', 'protagonistProfile',
+  'globalGuidance', 'writingStyle', 'narrativePOV', 'referenceWorks',
+] as const
+
 export const updateConfigTool = buildAgentTool({
   name: 'update_config',
   description: t('agent.tools.updateConfig.desc'),
@@ -22,7 +29,7 @@ export const updateConfigTool = buildAgentTool({
         type: 'string',
         description: t('agent.tools.updateConfig.fieldDesc'),
         enum: ['genre', 'subGenre', 'targetAudience', 'totalChapters', 'wordsPerChapter',
-               'coreOutline', 'worldSetting', 'goldenFinger', 'protagonistProfile',
+               'coreOutline', 'worldSetting', 'rulebook', 'goldenFinger', 'protagonistProfile',
                'globalGuidance', 'writingStyle', 'narrativePOV', 'referenceWorks'],
       },
       value: {
@@ -40,6 +47,10 @@ export const updateConfigTool = buildAgentTool({
 
     if (!field || value === undefined) {
       return { success: false, content: '', error: t('agent.tools.updateConfig.missingParams') }
+    }
+
+    if (!(ALLOWED_CONFIG_FIELDS as readonly string[]).includes(field)) {
+      return { success: false, content: '', error: t('agent.tools.updateConfig.unsupportedField') }
     }
 
     const project = useProjectStore.getState().currentProject
@@ -64,7 +75,7 @@ export const updateConfigTool = buildAgentTool({
       const revision = await applyRevision(project.path, { intent: '按作者要求更新小说配置', summary: '更新小说配置，正文是否需要调整应另行逐章检查。', edits: [{ kind: 'core', id: 'main', field: fieldName, version, oldText: before, newText: value }] }, context?.signal)
       return { success: true, content: '配置已保存并同步；正文尚需单独核对和修改。', artifacts: [{ type: 'story_revision', path: project.path, name: revision.intent, revisionId: revision.id }] }
     }
-    if (!['targetAudience', 'totalChapters', 'wordsPerChapter', 'referenceWorks'].includes(field)) return { success: false, content: '', error: '不支持该配置项。' }
+    if (!['targetAudience', 'totalChapters', 'wordsPerChapter', 'referenceWorks', 'rulebook'].includes(field)) return { success: false, content: '', error: '不支持该配置项。' }
     const actualValue = ['totalChapters', 'wordsPerChapter'].includes(field) ? Number(value) : value
     if (typeof actualValue === 'number' && (!Number.isSafeInteger(actualValue) || actualValue <= 0)) return { success: false, content: '', error: '章节数和字数必须是正整数。' }
     assertStoryProject(project.path)

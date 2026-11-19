@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+﻿import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -26,8 +26,8 @@ describe('path-guard：主进程文件访问约束', () => {
   let ctx: Ctx
 
   beforeEach(() => {
-    root = fs.mkdtempSync(path.join(os.tmpdir(), 'vela-pathguard-'))
-    home = path.join(root, 'home', '.vela')
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'moshu-pathguard-'))
+    home = path.join(root, 'home', '.moshu')
     for (const d of ['prompts', 'skills/demo', 'logs']) fs.mkdirSync(path.join(home, d), { recursive: true })
     for (const f of ['models.json', 'models.json.bak', 'config.json.corrupt-2026-09-30', 'recent-projects.json']) touch(path.join(home, f), '[]')
     touch(path.join(home, 'skills', 'demo', 'SKILL.md'))
@@ -35,11 +35,11 @@ describe('path-guard：主进程文件访问约束', () => {
 
     proj = path.join(root, 'novels', '我的小说')
     touch(path.join(proj, '第1章.txt'))
-    touch(path.join(proj, '.vela', 'vela.db'))
-    touch(path.join(proj, '.vela', 'vela.db-wal'))
-    touch(path.join(proj, '.vela', 'lancedb', 'chunks.lance', 'data.bin'))
-    touch(path.join(proj, '.vela', 'backups', 'vela-auto-1.db'))
-    touch(path.join(proj, '.vela', 'partial_arch.json'), '{}')
+    touch(path.join(proj, '.moshu', 'moshu.db'))
+    touch(path.join(proj, '.moshu', 'moshu.db-wal'))
+    touch(path.join(proj, '.moshu', 'lancedb', 'chunks.lance', 'data.bin'))
+    touch(path.join(proj, '.moshu', 'backups', 'moshu-auto-1.db'))
+    touch(path.join(proj, '.moshu', 'partial_arch.json'), '{}')
 
     outsideDir = path.join(root, 'outside')
     touch(path.join(outsideDir, 'secret.txt'))
@@ -49,7 +49,7 @@ describe('path-guard：主进程文件访问约束', () => {
     touch(path.join(importDir, 'a.txt'))
     touch(path.join(importDir, 'b.txt'))
 
-    ctx = { velaHome: home, projectPath: proj, grants: [] }
+    ctx = { moshuHome: home, projectPath: proj, grants: [] }
   })
 
   afterEach(() => {
@@ -68,9 +68,9 @@ describe('path-guard：主进程文件访问约束', () => {
     it('当前项目内可读写，包括尚不存在的新文件', () => {
       expect(ok(path.join(proj, '第1章.txt'), 'read')).toBe(true)
       expect(ok(path.join(proj, '卷一', '第2章.txt'), 'write')).toBe(true)
-      expect(ok(path.join(proj, '.vela', 'partial_arch.json'), 'write')).toBe(true)
+      expect(ok(path.join(proj, '.moshu', 'partial_arch.json'), 'write')).toBe(true)
       // 渲染进程常用正斜杠拼路径
-      expect(ok(`${proj}/.vela/prompts/x.json`, 'write')).toBe(true)
+      expect(ok(`${proj}/.moshu/prompts/x.json`, 'write')).toBe(true)
     })
 
     it('拒绝项目外路径、.. 穿越与同前缀的兄弟目录', () => {
@@ -89,28 +89,28 @@ describe('path-guard：主进程文件访问约束', () => {
     })
 
     it('项目内部的数据库、向量库与备份一律拒绝，即使位于当前项目内', () => {
-      expect(kind(path.join(proj, '.vela', 'vela.db'), 'read')).toBe('forbidden')
-      expect(kind(path.join(proj, '.vela', 'vela.db-wal'), 'write')).toBe('forbidden')
-      expect(kind(path.join(proj, '.vela', 'lancedb', 'chunks.lance', 'data.bin'), 'read')).toBe('forbidden')
-      expect(kind(path.join(proj, '.vela', 'lancedb'), 'read')).toBe('forbidden')
-      expect(kind(path.join(proj, '.vela', 'backups', 'vela-auto-1.db'), 'write')).toBe('forbidden')
+      expect(kind(path.join(proj, '.moshu', 'moshu.db'), 'read')).toBe('forbidden')
+      expect(kind(path.join(proj, '.moshu', 'moshu.db-wal'), 'write')).toBe('forbidden')
+      expect(kind(path.join(proj, '.moshu', 'lancedb', 'chunks.lance', 'data.bin'), 'read')).toBe('forbidden')
+      expect(kind(path.join(proj, '.moshu', 'lancedb'), 'read')).toBe('forbidden')
+      expect(kind(path.join(proj, '.moshu', 'backups', 'moshu-auto-1.db'), 'write')).toBe('forbidden')
     })
 
     it.runIf(isWindows)('Windows：数据流与结尾点号写法不能绕过受保护位置', () => {
       // "文件:流" 可以别名访问同一文件，盘符之后的冒号一律视为非法
-      expect(kind(`${path.join(proj, '.vela', 'vela.db')}::$DATA`, 'write')).toBe('invalid')
-      expect(kind(`${path.join(proj, '.vela', 'lancedb')}::$INDEX_ALLOCATION${path.sep}x`, 'read')).toBe('invalid')
+      expect(kind(`${path.join(proj, '.moshu', 'moshu.db')}::$DATA`, 'write')).toBe('invalid')
+      expect(kind(`${path.join(proj, '.moshu', 'lancedb')}::$INDEX_ALLOCATION${path.sep}x`, 'read')).toBe('invalid')
       expect(kind(`${path.join(proj, '第1章.txt')}:hidden`, 'write')).toBe('invalid')
       // 结尾点号：保守地按受保护位置处理
-      expect(kind(`${path.join(proj, '.vela')}.${path.sep}vela.db`, 'write')).toBe('forbidden')
-      // Node 的文件操作走 \\?\ 长路径，".vela." 不会被当成 ".vela"；无论如何都不能放行
+      expect(kind(`${path.join(proj, '.moshu')}.${path.sep}moshu.db`, 'write')).toBe('forbidden')
+      // Node 的文件操作走 \\?\ 长路径，".moshu." 不会被当成 ".moshu"；无论如何都不能放行
       const r = guard.evaluatePathAccess(`${home}.${path.sep}models.json`, 'read', {
         ...ctx, grants: [{ path: guard.canonicalizePath(root), access: 'write' }],
       })
       if (r.ok) expect(fs.existsSync(r.path)).toBe(false)
     })
 
-    it('~/.vela：prompts 读写、skills 只读，配置文件及其副本、logs、根目录本身一律拒绝', () => {
+    it('~/.moshu：prompts 读写、skills 只读，配置文件及其副本、logs、根目录本身一律拒绝', () => {
       expect(ok(path.join(home, 'prompts', 'chapter.json'), 'write')).toBe(true)
       expect(ok(path.join(home, 'skills', 'demo', 'SKILL.md'), 'read')).toBe(true)
       expect(kind(path.join(home, 'skills', 'demo', 'SKILL.md'), 'write')).toBe('forbidden')
@@ -122,14 +122,14 @@ describe('path-guard：主进程文件访问约束', () => {
       expect(kind(home, 'read')).toBe('forbidden')
     })
 
-    it('授权覆盖 ~/.vela 所在目录时，配置文件仍然拒绝', () => {
+    it('授权覆盖 ~/.moshu 所在目录时，配置文件仍然拒绝', () => {
       const c: Ctx = { ...ctx, grants: [{ path: guard.canonicalizePath(root), access: 'write' }] }
       expect(kind(path.join(home, 'models.json'), 'read', c)).toBe('forbidden')
-      expect(kind(path.join(proj, '.vela', 'vela.db'), 'write', c)).toBe('forbidden')
+      expect(kind(path.join(proj, '.moshu', 'moshu.db'), 'write', c)).toBe('forbidden')
       expect(ok(path.join(outsideDir, 'secret.txt'), 'read', c)).toBe(true)
     })
 
-    it('~/.vela 下用户自建的子目录按普通规则判断（项目可以放在这里）', () => {
+    it('~/.moshu 下用户自建的子目录按普通规则判断（项目可以放在这里）', () => {
       const inner = path.join(home, 'my-novel')
       touch(path.join(inner, 'a.txt'))
       expect(ok(path.join(inner, 'a.txt'), 'read', { ...ctx, projectPath: inner })).toBe(true)
@@ -184,7 +184,7 @@ describe('path-guard：主进程文件访问约束', () => {
       expect(guard.evaluateProjectOpenAccess(other, granted, noneKnown).ok).toBe(true)
     })
 
-    it('未知目录、只读授权的目录、~/.vela 下的应用目录不能打开', () => {
+    it('未知目录、只读授权的目录、~/.moshu 下的应用目录不能打开', () => {
       const r1 = guard.evaluateProjectOpenAccess(outsideDir, ctx, noneKnown)
       expect(r1.ok ? 'ok' : r1.kind).toBe('outside')
       const readOnly: Ctx = { ...ctx, grants: [{ path: guard.canonicalizePath(importDir), access: 'read' }] }
@@ -198,10 +198,10 @@ describe('path-guard：主进程文件访问约束', () => {
   })
 
   describe('evaluateProjectCreateAccess', () => {
-    const noProject: Ctx = { velaHome: '', projectPath: null, grants: [] }
+    const noProject: Ctx = { moshuHome: '', projectPath: null, grants: [] }
 
     it('手动输入的位置：目标目录不存在或为空时允许', () => {
-      const c = { ...noProject, velaHome: home }
+      const c = { ...noProject, moshuHome: home }
       expect(guard.evaluateProjectCreateAccess(path.join(root, 'typed', '新书'), c).ok).toBe(true)
       const empty = path.join(root, 'typed', '空目录')
       fs.mkdirSync(empty, { recursive: true })
@@ -210,15 +210,15 @@ describe('path-guard：主进程文件访问约束', () => {
     })
 
     it('手动输入的位置：目标目录已存在且非空时拒绝；位于授权目录内则允许', () => {
-      const c = { ...noProject, velaHome: home }
+      const c = { ...noProject, moshuHome: home }
       const r = guard.evaluateProjectCreateAccess(outsideDir, c)
       expect(r.ok ? 'ok' : r.kind).toBe('outside')
       const granted: Ctx = { ...c, grants: [{ path: guard.canonicalizePath(root), access: 'write' }] }
       expect(guard.evaluateProjectCreateAccess(outsideDir, granted).ok).toBe(true)
     })
 
-    it('不能建在 ~/.vela 根目录或应用目录里', () => {
-      const c = { ...noProject, velaHome: home }
+    it('不能建在 ~/.moshu 根目录或应用目录里', () => {
+      const c = { ...noProject, moshuHome: home }
       const r1 = guard.evaluateProjectCreateAccess(path.join(home, '新书'), c)
       expect(r1.ok ? 'ok' : r1.kind).toBe('forbidden')
       const r2 = guard.evaluateProjectCreateAccess(path.join(home, 'prompts', '新书'), c)

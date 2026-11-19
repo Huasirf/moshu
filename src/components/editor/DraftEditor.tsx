@@ -1,5 +1,5 @@
-import { useState, useRef, useEffect, useCallback } from 'react'
-import { Sparkles, Search, BadgeCheck, Save, FileStack, FileText, Wrench, RefreshCw, Wand2, Image as ImageIcon, Pilcrow } from 'lucide-react'
+﻿import { useState, useRef, useEffect, useCallback } from 'react'
+import { Sparkles, Search, BadgeCheck, Save, FileStack, FileText, Wrench, RefreshCw, Wand2, Image as ImageIcon, Pilcrow, ClipboardCheck, RotateCcw, History, Undo2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 import { useProjectStore } from '../../stores/project-store'
@@ -30,6 +30,12 @@ import { PostProcessStatusPanel } from '../ui/PostProcessStatusPanel'
 import { getChapterFinalizeScope } from '../../services/workflows/workflow-utils'
 import { guardRepairPostProcess } from '../../services/workflow-guards'
 import { normalizeChinesePunctuation, describeNormalizeResult, type NormalizeResult } from '../../lib/punctuation'
+import { isFindingForDraft, type FindingSummary } from '../../services/review/finding-scope'
+import type { ReviewFinding } from '../../../electron/repositories/review-finding-repository'
+import ReviewFindingsPanel from './ReviewFindingsPanel'
+import { ChapterStagePill } from '../ui/ChapterStagePill'
+import { CHAPTER_STAGES, type ChapterStage } from '../../shared/chapter-stage'
+import { markDownstreamBlueprintsStale } from '../../services/workflows/blueprint-staleness'
 
 interface Props {
   filePath: string
@@ -43,13 +49,24 @@ interface Props {
  */
 export default function DraftEditor({ filePath, content }: Props) {
   const { t } = useTranslation('editors')
+  const { t: tPanels } = useTranslation('panels')
   // 从系统读取草稿元数据与章节标题
   const [meta, setMeta] = useState<(DraftMeta & { chapterTitle?: string; filePath?: string }) | null>(null)
   const [pendingRevisions, setPendingRevisions] = useState<RevisionEntry[]>([])
   const [reviewCount, setReviewCount] = useState(0)
+  // 审稿台账抽屉：面板常驻挂载以维持计数，关闭时仅隐藏
+  const [findingsOpen, setFindingsOpen] = useState(false)
+  const [findingCounts, setFindingCounts] = useState<FindingSummary>({ total: 0, errors: 0, warnings: 0 })
+  // 流水线阶段（只读展示，不在此处推进）
+  const [stage, setStage] = useState<ChapterStage | null>(null)
   const [storyRefresh, setStoryRefresh] = useState(0)
+  // 取消定稿：仅当前最新定稿章可操作，需要知道全书最大定稿章号
+  const [maxFinalized, setMaxFinalized] = useState(0)
+  const [unfinalizeOpen, setUnfinalizeOpen] = useState(false)
+  const [unfinalizeAck, setUnfinalizeAck] = useState(false)
+  const [unfinalizing, setUnfinalizing] = useState(false)
   useEffect(() => globalEventBus.on('STORY_REVISED', ({ projectPath, revision }) => {
-    if (projectPath === useProjectStore.getState().currentProject?.path && revision.changes.some(c => c.kind === 'draft' && filePath === `vela://draft/${c.id}`)) setStoryRefresh(n => n + 1)
+    if (projectPath === useProjectStore.getState().currentProject?.path && revision.changes.some(c => c.kind === 'draft' && filePath === `moshu://draft/${c.id}`)) setStoryRefresh(n => n + 1)
   }), [filePath])
 
   // 【BUG1&2 修复】合并视图弹窗数据（不再占用 Tab）
@@ -75,13 +92,16 @@ export default function DraftEditor({ filePath, content }: Props) {
       const bp = Array.isArray(bps) ? bps.find((b: unknown) => (b as { chapterNumber?: number }).chapterNumber === m.chapterNumber) : null
       setMeta({ ...m, chapterTitle: bp ? (bp as { title?: string }).title : t('chapterCard.unnamed'), filePath, fileName: `v${m.version}`, createdAt: m.updatedAt ?? m.createdAt })
       // 使用 DB 化的虚拟 chapterDir（用于 draft-index 兼容层解析章节号）
-      const chapterDir = `vela://draft/ch${m.chapterNumber}`
+      const chapterDir = `moshu://draft/ch${m.chapterNumber}`
       // 检查待合并修稿
       const pending = await getPendingRevisions(chapterDir, m.version)
       if (!cancelled) setPendingRevisions(pending)
       // 检查审稿报告
       const reviews = await getReviewsForVersion(chapterDir, m.version)
       if (!cancelled) setReviewCount(reviews.length)
+      // 流水线阶段（章节维度的唯一事实来源）
+      const pipeline = await ipc.invoke('db:pipeline-get', m.chapterNumber).catch(() => null)
+      if (!cancelled) setStage((pipeline as { stage?: ChapterStage } | null)?.stage ?? null)
     }
     load()
 
@@ -92,8 +112,44 @@ export default function DraftEditor({ filePath, content }: Props) {
     }
   }, [filePath, storyRefresh, t])
 
+  // 审稿 / 定稿会推进流水线阶段，事件到达时只刷新阶段徽标
+  useEffect(() => {
+    const chapter = meta?.chapterNumber
+    if (!chapter) return
+    let cancelled = false
+    const refreshStage = async () => {
+      const { ipc } = await import('../../services/ipc-client')
+      const state = await ipc.invoke('db:pipeline-get', chapter).catch(() => null)
+      if (!cancelled) setStage((state as { stage?: ChapterStage } | null)?.stage ?? null)
+    }
+    const offs = [
+      globalEventBus.on('REVIEW_FINDINGS_UPDATED', (p) => { if (p.chapterNumber === chapter) void refreshStage() }),
+      globalEventBus.on('FINALIZE_COMPLETE', (p) => { if (p.chapterNumber === chapter) void refreshStage() }),
+    ]
+    return () => {
+      cancelled = true
+      offs.forEach((off) => off())
+    }
+  }, [meta?.chapterNumber])
+
   const status: DraftStatus = meta?.status ?? 'draft'
   const isReadonly = status === 'finalized' || status === 'archived'
+  // 取消定稿需要知道全书最新定稿章号，用于禁用非最新章
+  useEffect(() => {
+    if (status !== 'finalized') return
+    let cancelled = false
+    const load = async () => {
+      const { ipc } = await import('../../services/ipc-client')
+      const max = await ipc.invoke('db:draft-get-max-finalized-chapter').catch(() => 0)
+      if (!cancelled) setMaxFinalized(Number(max) || 0)
+    }
+    void load()
+    const off = globalEventBus.on('FINALIZE_COMPLETE', () => { void load() })
+    return () => {
+      cancelled = true
+      off()
+    }
+  }, [status])
   // 临时解锁：定稿章节默认只读，但允许作者临时解锁做少量文本修正（如角色名统一）。
   // 仅影响本组件的 UI 门控（可编辑性/保存按钮），不修改草稿的 status 字段，
   // 锁回去后行为与从未解锁完全一致。
@@ -152,7 +208,7 @@ export default function DraftEditor({ filePath, content }: Props) {
   const currentProject = useProjectStore(s => s.currentProject)
 
   /**
-   * 保存（vela://draft/ 走 DB，其他走 FS，见 persistEditorContent）。
+   * 保存（moshu://draft/ 走 DB，其他走 FS，见 persistEditorContent）。
    * silent=true（自动保存 / 关窗刷盘）时不弹提示，失败直接抛出，由调用方统一处理。
    */
   const doSave = async (text: string, silent = false): Promise<void> => {
@@ -325,8 +381,25 @@ export default function DraftEditor({ filePath, content }: Props) {
   /** 定稿 */
   const doFinalize = async () => {
     if (!meta || isChapterBusy) return
+
+    // [P3-5] 定稿前先看审稿台账：error 直接拦截，warning 需在确认弹窗中显式豁免
+    const { ipc } = await import('../../services/ipc-client')
+    const findings = await ipc.invoke('db:review-finding-list', meta.chapterNumber, 'open').catch(() => []) as ReviewFinding[]
+    const mine = findings.filter(f => isFindingForDraft(f, meta.id))
+    const errors = mine.filter(f => f.severity === 'error')
+    if (errors.length > 0) {
+      toast.error(t('draftEditor.finalizeBlockedByFindings', {
+        count: errors.length,
+        first: errors[0].message,
+      }))
+      return
+    }
+    const warnings = mine.filter(f => f.severity === 'warning')
+
     const ok = await confirm(
-      t('draftEditor.finalizeConfirmText', { chapter: meta.chapterNumber }),
+      warnings.length > 0
+        ? t('draftEditor.finalizeConfirmWithWarnings', { chapter: meta.chapterNumber, count: warnings.length })
+        : t('draftEditor.finalizeConfirmText', { chapter: meta.chapterNumber }),
       {
         title: t('draftEditor.finalizeConfirmTitle'),
         confirmText: t('draftEditor.finalizeConfirm'),
@@ -344,10 +417,99 @@ export default function DraftEditor({ filePath, content }: Props) {
         chapterTitle: meta.chapterTitle ?? t('draftEditor.unknownTitle'),
         draftPath: filePath,
         draftContent: body,
+        acceptWarnings: warnings.length > 0,
       }), false)
     } catch (e) {
       toast.error(t('draftEditor.finalizeStartFailed', { error: e }))
     }
+  }
+
+  /**
+   * 取消定稿：把本章完整回滚到 deaiified 并清理定稿派生数据。
+   *
+   * 只允许操作当前最新定稿章；服务端会再次校验，避免多窗口/刷新期间越界。
+   * 成功后保留草稿正文与版本历史，作者可重新生成、审校、定稿。
+   */
+  const doUnfinalize = async () => {
+    if (!meta || isChapterBusy || unfinalizing) return
+    if (maxFinalized > 0 && meta.chapterNumber !== maxFinalized) {
+      toast.error(t('draftEditor.unfinalizeNotLatest', { chapter: maxFinalized }))
+      return
+    }
+    setUnfinalizeOpen(false)
+    setUnfinalizing(true)
+    try {
+      const { ipc } = await import('../../services/ipc-client')
+      const res = await ipc.invoke('db:chapter-unfinalize', meta.chapterNumber)
+        .catch((e) => ({ success: false as const, error: String(e) }))
+      if (!res.success) {
+        const latest = res.error?.match(/latest=(\d+)/)?.[1]
+        toast.error(latest
+          ? t('draftEditor.unfinalizeNotLatest', { chapter: latest })
+          : res.error?.includes('CHAPTER_NOT_FINALIZED')
+            ? t('draftEditor.unfinalizeNotFinalized')
+            : t('draftEditor.unfinalizeFailed', { error: res.error ?? '' }))
+        return
+      }
+      const warnings = res.result?.warnings ?? []
+      toast.success(t('draftEditor.unfinalizeDone', { chapter: meta.chapterNumber }))
+      if (warnings.length > 0) toast.warning(warnings.join('；'))
+      setStage('deaiified')
+      setTempUnlocked(false)
+      setMaxFinalized(Math.max(0, meta.chapterNumber - 1))
+      globalEventBus.emit('FINALIZE_COMPLETE', { chapterNumber: meta.chapterNumber })
+    } catch (e) {
+      toast.error(t('draftEditor.unfinalizeFailed', { error: String(e) }))
+    } finally {
+      setUnfinalizing(false)
+    }
+  }
+
+  /**
+   * 回退一个流水线阶段（DR-03）
+   *
+   * 二次确认后只退一步：正文、审稿台账都保留，不删除任何历史。
+   * 下游 N+1..N+5 的蓝图会被标记 stale，提醒作者重新核对大纲。
+   */
+  const doRewindStage = async () => {
+    if (!meta || !stage || isChapterBusy) return
+    const index = CHAPTER_STAGES.indexOf(stage)
+    if (index <= 0) return
+    const prev = CHAPTER_STAGES[index - 1]
+    const stageLabel = (s: ChapterStage) => tPanels(`outlineTree.stage.${s}`)
+    const ok = await confirm(
+      t('draftEditor.rewindConfirmText', {
+        chapter: meta.chapterNumber,
+        from: stageLabel(stage),
+        to: stageLabel(prev),
+        start: meta.chapterNumber + 1,
+        end: meta.chapterNumber + 5,
+      }),
+      {
+        title: t('draftEditor.rewindConfirmTitle'),
+        confirmText: t('draftEditor.rewindStage'),
+        danger: true,
+      }
+    )
+    if (!ok) return
+
+    const { ipc } = await import('../../services/ipc-client')
+    const res = await ipc.invoke('db:pipeline-rewind', meta.chapterNumber, stage)
+      .catch((e) => ({ success: false as const, error: String(e) }))
+    if (!res.success) {
+      toast.error(t('draftEditor.rewindFailed', { error: res.error ?? '' }))
+      // 阶段已被别处推进：刷新徽标，避免界面停留在旧值
+      const latest = await ipc.invoke('db:pipeline-get', meta.chapterNumber).catch(() => null)
+      setStage((latest as { stage?: ChapterStage } | null)?.stage ?? null)
+      return
+    }
+    setStage(res.state?.stage ?? prev)
+    const marked = await markDownstreamBlueprintsStale(meta.chapterNumber).catch(() => [] as number[])
+    toast.success(
+      marked.length > 0
+        ? t('draftEditor.rewindDoneWithStale', { stage: stageLabel(prev), chapters: marked.join(', ') })
+        : t('draftEditor.rewindDone', { stage: stageLabel(prev) })
+    )
   }
 
   /** 修复定稿后处理 — 只重跑失败的步骤 */
@@ -370,8 +532,8 @@ export default function DraftEditor({ filePath, content }: Props) {
   /** 打开待合并修稿 —— 弹出式合并视图，不占用原草稿 Tab */
   const openPendingRevision = async (rev: RevisionEntry) => {
     if (!meta) return
-    // 使用 vela://revision/{id} 协议路径读取修稿内容
-    const revPath = `vela://revision/${rev.id}`
+    // 使用 moshu://revision/{id} 协议路径读取修稿内容
+    const revPath = `moshu://revision/${rev.id}`
 
     // 读取原稿和修稿
     const [origContent, revContent] = await Promise.all([
@@ -391,7 +553,7 @@ export default function DraftEditor({ filePath, content }: Props) {
   /** 合并完成回调 —— 就地覆写原草稿（不新建版本，仅蓝图写稿时才产生新版本） */
   const handleMergeComplete = async (mergedText: string) => {
     if (!meta || !mergeData) return
-    const chapterDir = `vela://draft/ch${meta.chapterNumber}`
+    const chapterDir = `moshu://draft/ch${meta.chapterNumber}`
 
     try {
       const { useDraftStore } = await import('../../stores/draft-store')
@@ -419,16 +581,28 @@ export default function DraftEditor({ filePath, content }: Props) {
     }
   }
 
+  /** 打开本章版本历史（P2-1：可选任意版本与当前稿左右对比） */
+  const openVersionHistory = () => {
+    if (!meta) return
+    useEditorStore.getState().openFile({
+      id: `version-history-ch${meta.chapterNumber}`,
+      name: t('draftEditor.versionHistoryName', { chapter: meta.chapterNumber }),
+      type: 'version-history',
+      filePath: `moshu://version-history/${meta.chapterNumber}`,
+      chapterNumber: meta.chapterNumber,
+    })
+  }
+
   /** 打开最新的审稿报告 */
   const openLatestReview = async () => {
     if (!meta) return
-    const chapterDir = `vela://draft/ch${meta.chapterNumber}`
+    const chapterDir = `moshu://draft/ch${meta.chapterNumber}`
     const { getLatestReview } = await import('../../services/draft-index')
     const latest = await getLatestReview(chapterDir, meta.version)
     if (!latest) return
 
     // 使用 review 的数据库 ID 读取审稿报告内容
-    const reportContent = await readDraftBody(`vela://review/${latest.id}`)
+    const reportContent = await readDraftBody(`moshu://review/${latest.id}`)
     if (!reportContent) return
 
     useEditorStore.getState().openFile({
@@ -462,6 +636,38 @@ export default function DraftEditor({ filePath, content }: Props) {
             <span className="text-[0.7rem] flex-shrink-0" style={{ color: 'var(--color-text-muted)' }}>
               v{meta.version}
             </span>
+          )}
+          {meta && stage && <ChapterStagePill stage={stage} className="flex-shrink-0" />}
+          {meta && stage && CHAPTER_STAGES.indexOf(stage) > 0 && (
+            <button
+              type="button"
+              className="flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded flex-shrink-0 transition-colors hover:bg-[var(--color-hover)]"
+              style={{ color: 'var(--color-text-muted)' }}
+              onClick={() => void doRewindStage()}
+              disabled={isChapterBusy}
+              title={t('draftEditor.rewindCurrent', {
+                stage: tPanels(`outlineTree.stage.${stage}`),
+                prev: tPanels(`outlineTree.stage.${CHAPTER_STAGES[CHAPTER_STAGES.indexOf(stage) - 1]}`),
+              })}
+              aria-label={t('draftEditor.rewindStage')}
+            >
+              <RotateCcw size={10} />
+              {t('draftEditor.rewindStage')}
+            </button>
+          )}
+          {/* 🕘 版本历史（P2-1）：只读稿也必须能看历史与对比 */}
+          {meta && (
+            <button
+              type="button"
+              className="flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded flex-shrink-0 transition-colors hover:bg-[var(--color-hover)]"
+              style={{ color: 'var(--color-text-muted)' }}
+              onClick={openVersionHistory}
+              title={t('draftEditor.versionHistoryTooltip')}
+              aria-label={t('draftEditor.versionHistory')}
+            >
+              <History size={10} />
+              {t('draftEditor.versionHistory')}
+            </button>
           )}
         </div>
 
@@ -580,6 +786,28 @@ export default function DraftEditor({ filePath, content }: Props) {
               </Button>
             )}
 
+            {/* 🧾 审稿台账 */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setFindingsOpen(v => !v)}
+              title={t('reviewPanel.tooltip')}
+            >
+              <ClipboardCheck size={12} />
+              {t('draftEditor.reviewFindings')}
+              {findingCounts.total > 0 && (
+                <span
+                  className="ml-0.5 px-1 rounded-full text-[10px] leading-4"
+                  style={{
+                    backgroundColor: findingCounts.errors > 0 ? 'var(--color-error)' : 'var(--color-warning)',
+                    color: '#fff',
+                  }}
+                >
+                  {findingCounts.total}
+                </span>
+              )}
+            </Button>
+
             {/* AI 修稿 */}
             <Button
               variant="ai"
@@ -687,6 +915,27 @@ export default function DraftEditor({ filePath, content }: Props) {
                 临时解锁编辑
               </Button>
             )}
+            {/* 审稿台账（只读态仍可查看历史结论） */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setFindingsOpen(v => !v)}
+              title={t('reviewPanel.tooltip')}
+            >
+              <ClipboardCheck size={11} />
+              {t('draftEditor.reviewFindings')}
+              {findingCounts.total > 0 && (
+                <span
+                  className="ml-0.5 px-1 rounded-full text-[10px] leading-4"
+                  style={{
+                    backgroundColor: findingCounts.errors > 0 ? 'var(--color-error)' : 'var(--color-warning)',
+                    color: '#fff',
+                  }}
+                >
+                  {findingCounts.total}
+                </span>
+              )}
+            </Button>
             {/* 配图（只读态仍可为章节配图） */}
             <Button
               variant="outline"
@@ -708,6 +957,21 @@ export default function DraftEditor({ filePath, content }: Props) {
               >
                 <Wrench size={11} />
                 {t('draftEditor.repairFinalize')}
+              </Button>
+            )}
+            {/* 取消定稿：仅当前最新定稿章可用；更早章节需先倒序取消尾部章节 */}
+            {status === 'finalized' && meta && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => { setUnfinalizeAck(false); setUnfinalizeOpen(true) }}
+                disabled={isChapterBusy || unfinalizing || (maxFinalized > 0 && meta.chapterNumber !== maxFinalized)}
+                title={maxFinalized > 0 && meta.chapterNumber !== maxFinalized
+                  ? t('draftEditor.unfinalizeNotLatest', { chapter: maxFinalized })
+                  : t('draftEditor.unfinalizeTooltip')}
+              >
+                <Undo2 size={11} />
+                {t('draftEditor.unfinalize')}
               </Button>
             )}
           </div>
@@ -734,26 +998,36 @@ export default function DraftEditor({ filePath, content }: Props) {
         </div>
       )}
 
-      {/* 正文区 */}
-      <div className="flex-1 overflow-hidden relative">
-        <CodeMirrorEditor
-          mode="prose"
-          content={content}
-          filePath={filePath}
-          editable={!effectiveReadonly && !isChapterBusy}
-          hideStatusBar
-          onCharCountChange={setCharCount}
-          onChange={(text) => {
-            currentBodyRef.current = text
-            // 只翻 dirty 标志（已 dirty 时零 store 写入），内容在保存/卸载时刷回。
-            // 按 filePath 解析 tab id：个别入口（Agent 打开的章节）id 与 filePath 不同
-            const tab = useEditorStore.getState().tabs.find(t => t.filePath === filePath && t.type === 'chapter')
-            if (tab) useEditorStore.getState().markTabDirty(tab.id)
-          }}
-          onSave={(text) => doSave(text)}
-        />
-
-
+      {/* 正文区 + 审稿台账抽屉 */}
+      <div className="flex-1 overflow-hidden flex min-h-0">
+        <div className="flex-1 min-w-0 overflow-hidden relative">
+          <CodeMirrorEditor
+            mode="prose"
+            content={content}
+            filePath={filePath}
+            editable={!effectiveReadonly && !isChapterBusy}
+            hideStatusBar
+            onCharCountChange={setCharCount}
+            onChange={(text) => {
+              currentBodyRef.current = text
+              // 只翻 dirty 标志（已 dirty 时零 store 写入），内容在保存/卸载时刷回。
+              // 按 filePath 解析 tab id：个别入口（Agent 打开的章节）id 与 filePath 不同
+              const tab = useEditorStore.getState().tabs.find(t => t.filePath === filePath && t.type === 'chapter')
+              if (tab) useEditorStore.getState().markTabDirty(tab.id)
+            }}
+            onSave={(text) => doSave(text)}
+          />
+        </div>
+        {meta && (
+          <ReviewFindingsPanel
+            chapterNumber={meta.chapterNumber}
+            draftId={String(meta.id)}
+            filePath={filePath}
+            open={findingsOpen}
+            onClose={() => setFindingsOpen(false)}
+            onCountChange={setFindingCounts}
+          />
+        )}
       </div>
 
       {/* AI 操作确认弹窗（修稿含自定义提示词输入框） */}
@@ -883,6 +1157,57 @@ export default function DraftEditor({ filePath, content }: Props) {
               }}
             >
               {t('draftEditor.confirmExecution')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 取消定稿确认：列出清理项，必须勾选确认 */}
+      <Dialog open={unfinalizeOpen} onOpenChange={setUnfinalizeOpen}>
+        <DialogContent className="max-w-[460px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Undo2 size={15} className="text-[var(--color-warning)]" />
+              {t('draftEditor.unfinalizeConfirmTitle', { chapter: meta?.chapterNumber })}
+            </DialogTitle>
+            <DialogDescription>{t('draftEditor.unfinalizeConfirmIntro')}</DialogDescription>
+          </DialogHeader>
+          <div className="px-5 py-2 text-sm space-y-2" style={{ color: 'var(--color-text-secondary)' }}>
+            <ul className="space-y-1 list-disc pl-4">
+              <li>{t('draftEditor.unfinalizeCleanup1', { chapter: meta?.chapterNumber })}</li>
+              <li>{t('draftEditor.unfinalizeCleanup2')}</li>
+              <li>{t('draftEditor.unfinalizeCleanup3')}</li>
+              <li>{t('draftEditor.unfinalizeCleanup4')}</li>
+              <li>{t('draftEditor.unfinalizeCleanup5', { start: (meta?.chapterNumber ?? 0) + 1, end: (meta?.chapterNumber ?? 0) + 5 })}</li>
+            </ul>
+            <div
+              className="rounded-md px-3 py-2 text-xs"
+              style={{ backgroundColor: 'rgba(245,158,11,0.1)', color: 'var(--color-text-secondary)' }}
+            >
+              {t('draftEditor.unfinalizeBackupNote')}
+            </div>
+            <label className="flex items-start gap-2 cursor-pointer select-none pt-1">
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                checked={unfinalizeAck}
+                onChange={e => setUnfinalizeAck(e.target.checked)}
+              />
+              <span className="text-xs" style={{ color: 'var(--color-text)' }}>
+                {t('draftEditor.unfinalizeConfirmCheck')}
+              </span>
+            </label>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setUnfinalizeOpen(false)}>
+              {t('draftEditor.cancel')}
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={!unfinalizeAck || unfinalizing}
+              onClick={() => void doUnfinalize()}
+            >
+              {t('draftEditor.unfinalizeConfirmAction')}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -1,5 +1,5 @@
-/**
- * Vela SQLite 数据库服务 — 主进程使用
+﻿/**
+ * 墨枢 SQLite 数据库服务 — 主进程使用
  *
  * 负责 SQLite 实例的连接、生命周期与建表。
  * 具体业务逻辑由 /repositories 提供。
@@ -10,6 +10,8 @@ import fs from 'node:fs'
 import { closeAllConnections as closeAllLanceConnections } from './vector-store'
 import { snapshotDatabaseSync, pruneBackups } from './db-backup'
 import { startAutoBackup, stopAutoBackup } from './db-auto-backup'
+import { migrateLegacyProjectDir, LEGACY_PROJECT_DIR, LEGACY_DB_NAME, DB_NAME } from './utils/legacy-migration'
+import { PLATFORM_DEFAULT_STYLE } from './default-style'
 
 const require = createRequire(import.meta.url)
 const Database = require('better-sqlite3') as typeof import('better-sqlite3')
@@ -23,7 +25,12 @@ let currentProjectPath: string | null = null
 export function initProjectDatabase(projectPath: string): void {
   closeProjectDatabase()
 
-  const dbPath = path.join(projectPath, '.vela', 'vela.db')
+  // 存量项目：.vela → .moshu 一次性复制迁移（不移动，可回退）
+  const migrated = migrateLegacyProjectDir(projectPath)
+  const useLegacy = !migrated && fs.existsSync(path.join(projectPath, LEGACY_PROJECT_DIR))
+  const dirName = useLegacy ? LEGACY_PROJECT_DIR : '.moshu'
+  const fileName = useLegacy ? LEGACY_DB_NAME : DB_NAME
+  const dbPath = path.join(projectPath, dirName, fileName)
   fs.mkdirSync(path.dirname(dbPath), { recursive: true })
 
   projectDb = new Database(dbPath)
@@ -45,9 +52,11 @@ export function initProjectDatabase(projectPath: string): void {
     throw e
   }
   currentProjectPath = projectPath
+  // 新项目首次打开时写入平台通用风格（已有档案的项目不动）
+  seedDefaultStyleProfile(projectDb)
   // 后台滚动备份（间隔与保留份数见 db-auto-backup.ts）
   startAutoBackup(projectDb, projectPath)
-  console.log(`[Vela DB] 项目数据库已打开: ${dbPath}`)
+  console.log(`[MoShu DB] 项目数据库已打开: ${dbPath}`)
 }
 
 /**
@@ -72,6 +81,19 @@ export function getCurrentProjectPath(): string | null {
 
 function indexExists(db: BetterSqlite3.Database, name: string): boolean {
   return !!db.prepare(`SELECT 1 FROM sqlite_master WHERE type='index' AND name=?`).get(name)
+}
+
+/** 补列：列不存在才 ALTER，幂等（旧项目库补齐后加的列） */
+function addColumnIfMissing(db: BetterSqlite3.Database, table: string, column: string, ddl: string): void {
+  try {
+    const cols = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>
+    if (!cols.some((c) => c.name === column)) {
+      db.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`)
+      console.log(`[MoShu DB] 迁移：为 ${table} 补列 ${column}`)
+    }
+  } catch (e) {
+    console.warn(`[MoShu DB] 迁移 ${table}.${column} 失败:`, e)
+  }
 }
 
 /** v0 → v1：给 canon 表加唯一约束（先按约束口径去重，保留 id 最小的那条） */
@@ -110,11 +132,147 @@ function migrateV0ToV1(db: BetterSqlite3.Database): void {
 }
 
 /**
+ * v1 → v2：P1 数据层（资产库 / 属性 / 关系 / 审稿台账 / 流水线 / 风格）。
+ * 只做加法：补列 + 建新表，全部幂等；不重建、不删列。
+ */
+function migrateV1ToV2(db: BetterSqlite3.Database): void {
+  // 蓝图层补字段（章节引用资产、场景拆解、目标字数、状态、节拍标签）
+  addColumnIfMissing(db, 'blueprints', 'asset_refs', `asset_refs TEXT NOT NULL DEFAULT '[]'`)
+  addColumnIfMissing(db, 'blueprints', 'scenes_json', `scenes_json TEXT NOT NULL DEFAULT '[]'`)
+  addColumnIfMissing(db, 'blueprints', 'words_target', `words_target INTEGER NOT NULL DEFAULT 0`)
+  addColumnIfMissing(db, 'blueprints', 'status', `status TEXT NOT NULL DEFAULT 'planned'`)
+  addColumnIfMissing(db, 'blueprints', 'beat_tags', `beat_tags TEXT NOT NULL DEFAULT ''`)
+  // 资产总表（新建表的老库同样补齐 entity_type / type_data_json）
+  addColumnIfMissing(db, 'canon_items', 'entity_type', `entity_type TEXT NOT NULL DEFAULT 'item'`)
+  addColumnIfMissing(db, 'canon_items', 'type_data_json', `type_data_json TEXT NOT NULL DEFAULT '{}'`)
+  db.exec(P1_TABLES_DDL)
+}
+
+/**
+ * v2 → v3：P3 定稿写回所需的道具流转事件表。
+ * 只做加法：CREATE TABLE / INDEX IF NOT EXISTS，可重复执行。
+ */
+function migrateV2ToV3(db: BetterSqlite3.Database): void {
+  db.exec(P3_TABLES_DDL)
+}
+
+/**
+ * v3 → v4：角色卡 2.0（按章状态历史 / 章末快照 / 结构化天赋与技能）。
+ * 只做加法：补列 + 建新表，全部幂等。
+ */
+function migrateV3ToV4(db: BetterSqlite3.Database): void {
+  addColumnIfMissing(db, 'characters', 'cs_talents_json', `cs_talents_json TEXT NOT NULL DEFAULT '[]'`)
+  addColumnIfMissing(db, 'characters', 'cs_skills_json', `cs_skills_json TEXT NOT NULL DEFAULT '[]'`)
+  db.exec(P4_TABLES_DDL)
+}
+
+/**
+ * v4 → v5：同一章只保留一个正式定稿。
+ * 旧逻辑允许同章多版同时标记 finalized；这里保留 version 最大的那一版，
+ * 其余一律降级为 archived（仍可在版本历史里查看与回退）。
+ */
+function migrateV4ToV5(db: BetterSqlite3.Database): void {
+  db.prepare(`
+    UPDATE drafts SET status = 'archived', updated_at = datetime('now')
+    WHERE status = 'finalized'
+      AND EXISTS (
+        SELECT 1 FROM drafts AS newer
+        WHERE newer.chapter_number = drafts.chapter_number
+          AND newer.status = 'finalized'
+          AND newer.version > drafts.version
+      )
+  `).run()
+}
+
+/**
+ * v5 → v6：规则结构化条目库 + 规则快照 + 章纲时间线。
+ * 规则条目是 Gemini 参考的主数据源；project_core.rulebook 降级为编译产物。
+ */
+const P6_TABLES_DDL = `
+  CREATE TABLE IF NOT EXISTS rule_items (
+    id TEXT PRIMARY KEY,
+    code TEXT NOT NULL DEFAULT '',
+    grp TEXT NOT NULL DEFAULT '',
+    title TEXT NOT NULL DEFAULT '',
+    body TEXT NOT NULL DEFAULT '',
+    severity TEXT NOT NULL DEFAULT 'soft',
+    tags TEXT NOT NULL DEFAULT '[]',
+    active INTEGER NOT NULL DEFAULT 1,
+    sort INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT DEFAULT (datetime('now'))
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_rule_items_code ON rule_items(code);
+  CREATE INDEX IF NOT EXISTS idx_rule_items_sort ON rule_items(sort);
+
+  CREATE TABLE IF NOT EXISTS rule_snapshots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    hash TEXT NOT NULL,
+    chars INTEGER NOT NULL DEFAULT 0,
+    items_count INTEGER NOT NULL DEFAULT 0,
+    content TEXT NOT NULL DEFAULT '',
+    created_at TEXT DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS blueprint_timeline_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    chapter_number INTEGER NOT NULL,
+    scene_index INTEGER NOT NULL DEFAULT 0,
+    seq INTEGER NOT NULL DEFAULT 0,
+    story_time TEXT NOT NULL DEFAULT '',
+    absolute_time TEXT NOT NULL DEFAULT '',
+    duration TEXT NOT NULL DEFAULT '',
+    location TEXT NOT NULL DEFAULT '',
+    participants TEXT NOT NULL DEFAULT '[]',
+    summary TEXT NOT NULL DEFAULT '',
+    rule_refs TEXT NOT NULL DEFAULT '[]',
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_btl_chapter ON blueprint_timeline_events(chapter_number, seq);
+
+  CREATE TABLE IF NOT EXISTS project_timeline_config (
+    id TEXT PRIMARY KEY DEFAULT 'main',
+    calendar TEXT NOT NULL DEFAULT '',
+    era_start TEXT NOT NULL DEFAULT '',
+    time_flow TEXT NOT NULL DEFAULT '',
+    notes TEXT NOT NULL DEFAULT ''
+  );
+`
+
+function migrateV5ToV6(db: BetterSqlite3.Database): void {
+  db.exec(P6_TABLES_DDL)
+}
+
+/**
+ * v6 → v7：时间线补时间字段。
+ * - canon_timeline_events：定稿抽取需要 absolute_time / duration / source / confidence /
+ *   evidence / status；旧行回填 status='confirmed'、source='canon'，不猜测旧事件时间。
+ * - blueprint_timeline_events：手工锁定标记，自动抽取不得覆盖 locked 事件。
+ */
+function migrateV6ToV7(db: BetterSqlite3.Database): void {
+  // 幂等：重复打开 / 测试里重置版本后会再次执行，已存在的列要跳过
+  addColumnIfMissing(db, 'canon_timeline_events', 'absolute_time', `absolute_time TEXT NOT NULL DEFAULT ''`)
+  addColumnIfMissing(db, 'canon_timeline_events', 'duration', `duration TEXT NOT NULL DEFAULT ''`)
+  addColumnIfMissing(db, 'canon_timeline_events', 'source', `source TEXT NOT NULL DEFAULT 'canon'`)
+  addColumnIfMissing(db, 'canon_timeline_events', 'confidence', `confidence REAL NOT NULL DEFAULT 1.0`)
+  addColumnIfMissing(db, 'canon_timeline_events', 'evidence', `evidence TEXT NOT NULL DEFAULT ''`)
+  addColumnIfMissing(db, 'canon_timeline_events', 'status', `status TEXT NOT NULL DEFAULT 'confirmed'`)
+  addColumnIfMissing(db, 'blueprint_timeline_events', 'locked', 'locked INTEGER NOT NULL DEFAULT 0')
+  addColumnIfMissing(db, 'blueprint_timeline_events', 'lock_source', `lock_source TEXT NOT NULL DEFAULT ''`)
+}
+
+/**
  * 有序迁移列表：第 i 项把 user_version 从 i 升到 i + 1。
  * 新增迁移只能追加到末尾，已发布的迁移不要修改。
  */
 const MIGRATIONS: Array<(db: BetterSqlite3.Database) => void> = [
   migrateV0ToV1,
+  migrateV1ToV2,
+  migrateV2ToV3,
+  migrateV3ToV4,
+  migrateV4ToV5,
+  migrateV5ToV6,
+  migrateV6ToV7,
 ]
 
 /** 当前应用支持的 schema 版本号 */
@@ -125,15 +283,15 @@ const PRE_MIGRATION_BACKUP_KEEP = 3
 
 /**
  * 对老库执行 schema 迁移。
- * - 库版本比应用新（被新版 Vela 升级过）：拒绝打开，避免旧版本按旧结构写坏数据
- * - 迁移会改写数据（如去重删除）：执行前先整库备份到 .vela/backups
+ * - 库版本比应用新（被新版 墨枢 升级过）：拒绝打开，避免旧版本按旧结构写坏数据
+ * - 迁移会改写数据（如去重删除）：执行前先整库备份到 .moshu/backups
  * - 每一步在事务里执行，成功才升版本号；失败整体回滚、保持原版本，下次打开项目时重试
  *   （此前失败只打日志、照样把版本号升上去，之后再也不会重试）
  */
 function migrateProjectDatabase(db: BetterSqlite3.Database, projectPath: string): void {
   const currentVersion = Number(db.pragma('user_version', { simple: true })) || 0
   if (currentVersion > SCHEMA_VERSION) {
-    throw new Error(`项目数据库版本（v${currentVersion}）高于当前 Vela 支持的版本（v${SCHEMA_VERSION}），请升级 Vela 后再打开此项目`)
+    throw new Error(`项目数据库版本（v${currentVersion}）高于当前 墨枢 支持的版本（v${SCHEMA_VERSION}），请升级 墨枢 后再打开此项目`)
   }
   if (currentVersion === SCHEMA_VERSION) return
 
@@ -144,11 +302,11 @@ function migrateProjectDatabase(db: BetterSqlite3.Database, projectPath: string)
     if (hasCanonData) {
       const file = snapshotDatabaseSync(db, projectPath, 'pre-migration')
       pruneBackups(projectPath, 'pre-migration', PRE_MIGRATION_BACKUP_KEEP)
-      console.log(`[Vela DB] 迁移前备份: ${file}`)
+      console.log(`[MoShu DB] 迁移前备份: ${file}`)
     }
   } catch (e) {
     // 备份失败（磁盘满等）时不冒险改写数据，保持原版本，下次再试
-    console.warn('[Vela DB] 迁移前备份失败，本次跳过 schema 迁移:', e)
+    console.warn('[MoShu DB] 迁移前备份失败，本次跳过 schema 迁移:', e)
     return
   }
 
@@ -158,11 +316,33 @@ function migrateProjectDatabase(db: BetterSqlite3.Database, projectPath: string)
         MIGRATIONS[version](db)
         db.pragma(`user_version = ${version + 1}`)
       })()
-      console.log(`[Vela DB] schema 迁移完成: v${version} → v${version + 1}`)
+      console.log(`[MoShu DB] schema 迁移完成: v${version} → v${version + 1}`)
     } catch (e) {
-      console.warn(`[Vela DB] schema 迁移 v${version} → v${version + 1} 失败，已回滚，下次打开项目时重试:`, e)
+      console.warn(`[MoShu DB] schema 迁移 v${version} → v${version + 1} 失败，已回滚，下次打开项目时重试:`, e)
       return
     }
+  }
+}
+
+/**
+ * 平台通用风格种子：仅当项目库还没有任何风格档案时写入并激活。
+ * 已有档案（用户自建或旧项目）不覆盖；失败只告警，不影响项目打开。
+ */
+function seedDefaultStyleProfile(db: BetterSqlite3.Database): void {
+  try {
+    const exists = db.prepare('SELECT 1 FROM style_profiles LIMIT 1').get()
+    if (exists) return
+    db.prepare(`
+      INSERT INTO style_profiles (name, is_active, rules_json, prompt_hint)
+      VALUES (?, 1, ?, ?)
+    `).run(
+      PLATFORM_DEFAULT_STYLE.name,
+      JSON.stringify(PLATFORM_DEFAULT_STYLE.rules),
+      PLATFORM_DEFAULT_STYLE.promptHint,
+    )
+    console.log('[MoShu DB] 已写入平台通用写作风格')
+  } catch (e) {
+    console.warn('[MoShu DB] 写入平台通用写作风格失败:', e)
   }
 }
 
@@ -176,29 +356,189 @@ export function getProjectDb(): BetterSqlite3.Database | null {
  * SQLite 的 CREATE TABLE IF NOT EXISTS 不会给已存在的表加列，故用 ALTER 补。
  */
 function migrateSchema(db: BetterSqlite3.Database) {
-  const addColumnIfMissing = (table: string, column: string, ddl: string) => {
-    try {
-      const cols = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>
-      if (!cols.some((c) => c.name === column)) {
-        db.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`)
-        console.log(`[Vela DB] 迁移：为 ${table} 补列 ${column}`)
-      }
-    } catch (e) {
-      console.warn(`[Vela DB] 迁移 ${table}.${column} 失败:`, e)
-    }
-  }
-  addColumnIfMissing('characters', 'speech_style', `speech_style TEXT DEFAULT ''`)
-  addColumnIfMissing('characters', 'cs_known_info', `cs_known_info TEXT DEFAULT ''`)
-  addColumnIfMissing('characters', 'portrait_path', `portrait_path TEXT DEFAULT ''`)
-  addColumnIfMissing('characters', 'image_prompt', `image_prompt TEXT DEFAULT ''`)
-  addColumnIfMissing('project_core', 'style_reference', `style_reference TEXT DEFAULT ''`)
-  addColumnIfMissing('project_core', 'art_style', `art_style TEXT DEFAULT ''`)
-  addColumnIfMissing('project_core', 'negative_prompt', `negative_prompt TEXT DEFAULT ''`)
+  addColumnIfMissing(db, 'characters', 'speech_style', `speech_style TEXT DEFAULT ''`)
+  addColumnIfMissing(db, 'characters', 'cs_known_info', `cs_known_info TEXT DEFAULT ''`)
+  addColumnIfMissing(db, 'characters', 'portrait_path', `portrait_path TEXT DEFAULT ''`)
+  addColumnIfMissing(db, 'characters', 'image_prompt', `image_prompt TEXT DEFAULT ''`)
+  addColumnIfMissing(db, 'project_core', 'style_reference', `style_reference TEXT DEFAULT ''`)
+  addColumnIfMissing(db, 'project_core', 'art_style', `art_style TEXT DEFAULT ''`)
+  addColumnIfMissing(db, 'project_core', 'negative_prompt', `negative_prompt TEXT DEFAULT ''`)
   // 小说配置正文种子字段（此前误用架构四大件列存储，导致保存后清空，补齐独立列）
-  addColumnIfMissing('project_core', 'core_outline', `core_outline TEXT DEFAULT ''`)
-  addColumnIfMissing('project_core', 'world_setting', `world_setting TEXT DEFAULT ''`)
-  addColumnIfMissing('project_core', 'protagonist_profile', `protagonist_profile TEXT DEFAULT ''`)
+  addColumnIfMissing(db, 'project_core', 'core_outline', `core_outline TEXT DEFAULT ''`)
+  addColumnIfMissing(db, 'project_core', 'world_setting', `world_setting TEXT DEFAULT ''`)
+  addColumnIfMissing(db, 'project_core', 'protagonist_profile', `protagonist_profile TEXT DEFAULT ''`)
+  addColumnIfMissing(db, 'project_core', 'rulebook', `rulebook TEXT DEFAULT ''`)
 }
+
+/**
+ * P1 数据层新增表（新库建表与 v1→v2 迁移共用同一份 DDL，避免两处定义漂移）。
+ * 全部 IF NOT EXISTS，幂等；不动已有表结构。
+ */
+const P1_TABLES_DDL = `
+    -- ============================================================
+    -- P1. 资产总表（item / location / skill / faction / secret / number；
+    --     character 仍以 characters 表为准，此处仅保留类型位以便统一引用）
+    -- ============================================================
+    CREATE TABLE IF NOT EXISTS canon_items (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      entity_type TEXT NOT NULL DEFAULT 'item',
+      name TEXT NOT NULL,
+      summary TEXT DEFAULT '',
+      description TEXT DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'active',
+      first_chapter INTEGER NOT NULL DEFAULT 0,
+      last_chapter INTEGER NOT NULL DEFAULT 0,
+      tags_json TEXT NOT NULL DEFAULT '[]',
+      type_data_json TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_canon_items_name ON canon_items(entity_type, name);
+    CREATE INDEX IF NOT EXISTS idx_canon_items_type ON canon_items(entity_type, status);
+
+    -- ============================================================
+    -- P1. 属性定义 / 按章属性值（现状面板的存储底座）
+    -- ============================================================
+    CREATE TABLE IF NOT EXISTS attribute_defs (
+      key TEXT PRIMARY KEY,
+      entity_type TEXT NOT NULL DEFAULT 'character',
+      label TEXT NOT NULL,
+      value_type TEXT NOT NULL CHECK (value_type IN ('number','enum','text')),
+      enum_values_json TEXT NOT NULL DEFAULT '[]',
+      unit TEXT NOT NULL DEFAULT '',
+      min_value REAL,
+      max_value REAL,
+      show_in_panel INTEGER NOT NULL DEFAULT 1,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS attribute_values (
+      entity_id TEXT NOT NULL,
+      attr_key TEXT NOT NULL,
+      chapter_number INTEGER NOT NULL,
+      phase TEXT NOT NULL DEFAULT 'after' CHECK (phase IN ('before','after')),
+      num_value REAL,
+      text_value TEXT,
+      delta_num REAL,
+      source TEXT NOT NULL DEFAULT '',
+      source_event_id INTEGER,
+      updated_at TEXT DEFAULT (datetime('now')),
+      PRIMARY KEY (entity_id, attr_key, chapter_number, phase)
+    );
+
+    -- ============================================================
+    -- P1. 关系网
+    -- ============================================================
+    CREATE TABLE IF NOT EXISTS entity_relations (
+      from_id TEXT NOT NULL,
+      to_id TEXT NOT NULL,
+      relation_type TEXT NOT NULL,
+      affection INTEGER DEFAULT 0,
+      status TEXT DEFAULT 'active',
+      since_chapter INTEGER DEFAULT 0,
+      last_changed_chapter INTEGER DEFAULT 0,
+      note TEXT DEFAULT '',
+      updated_at TEXT DEFAULT (datetime('now')),
+      PRIMARY KEY (from_id, to_id, relation_type)
+    );
+
+    -- ============================================================
+    -- P1. 审稿台账（findings）
+    -- ============================================================
+    CREATE TABLE IF NOT EXISTS review_findings (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      chapter_number INTEGER NOT NULL,
+      draft_id TEXT DEFAULT '',
+      stage TEXT NOT NULL,
+      category TEXT NOT NULL,
+      severity TEXT NOT NULL,
+      message TEXT NOT NULL,
+      evidence TEXT DEFAULT '',
+      location_hint TEXT DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'open',
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_review_findings_ch ON review_findings(chapter_number, status);
+
+    -- ============================================================
+    -- P1. 章节流水线状态机
+    -- ============================================================
+    CREATE TABLE IF NOT EXISTS chapter_pipeline (
+      chapter_number INTEGER PRIMARY KEY,
+      stage TEXT NOT NULL DEFAULT 'planned',
+      updated_at TEXT DEFAULT (datetime('now'))
+    );
+
+    -- ============================================================
+    -- P1. 风格档案
+    -- ============================================================
+    CREATE TABLE IF NOT EXISTS style_profiles (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE,
+      is_active INTEGER NOT NULL DEFAULT 0,
+      rules_json TEXT NOT NULL DEFAULT '[]',
+      prompt_hint TEXT NOT NULL DEFAULT '',
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+`
+
+/**
+ * P3 数据层新增表（新库建表与 v2→v3 迁移共用同一份 DDL）。
+ * DR-02 已定稿：道具事件表维持最小可用集（取得/失去），其余事件类型按需补列。
+ */
+const P3_TABLES_DDL = `
+    -- ============================================================
+    -- P3. 道具流转事件（定稿写回：取得 / 失去 / 使用 / 消耗）
+    -- ============================================================
+    CREATE TABLE IF NOT EXISTS canon_item_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      chapter_number INTEGER NOT NULL,
+      entity_id TEXT NOT NULL,
+      item_name TEXT NOT NULL,
+      event_type TEXT NOT NULL CHECK (event_type IN ('acquire','lose','use','consume','grant','destroy')),
+      note TEXT NOT NULL DEFAULT '',
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_item_events_ch ON canon_item_events(chapter_number, entity_id);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_item_events_unique
+      ON canon_item_events(chapter_number, entity_id, item_name, event_type);
+`
+
+/**
+ * P4 数据层新增表（新库建表与 v3→v4 迁移共用同一份 DDL）。
+ * 角色卡 2.0：固定档案留在 characters 表，动态状态按章留痕。
+ * - character_state_history：字段级变更流水（before/after），用于成长轨迹与追溯
+ * - character_chapter_snapshots：每章定稿后的完整动态快照，供下一章审稿/写稿取用
+ */
+const P4_TABLES_DDL = `
+    -- ============================================================
+    -- P4. 角色状态变更流水
+    -- ============================================================
+    CREATE TABLE IF NOT EXISTS character_state_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      character_name TEXT NOT NULL,
+      chapter_number INTEGER NOT NULL,
+      field TEXT NOT NULL,
+      before_json TEXT,
+      after_json TEXT,
+      source TEXT NOT NULL DEFAULT 'finalize',
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_csh_char_ch ON character_state_history(character_name, chapter_number);
+
+    -- ============================================================
+    -- P4. 角色章末快照（每章定稿后写入，审稿取 N-1 章末状态）
+    -- ============================================================
+    CREATE TABLE IF NOT EXISTS character_chapter_snapshots (
+      chapter_number INTEGER NOT NULL,
+      character_name TEXT NOT NULL,
+      state_json TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT DEFAULT (datetime('now')),
+      PRIMARY KEY (chapter_number, character_name)
+    );
+    CREATE INDEX IF NOT EXISTS idx_ccs_ch ON character_chapter_snapshots(chapter_number);
+`
 
 /** 创建完整表结构（9 张核心表 + 2 张沿用表） */
 function createTables(db: BetterSqlite3.Database) {
@@ -226,6 +566,7 @@ function createTables(db: BetterSqlite3.Database) {
       core_outline TEXT DEFAULT '',               -- 核心大纲
       world_setting TEXT DEFAULT '',              -- 世界观设定/初始设定
       protagonist_profile TEXT DEFAULT '',        -- 主角人设
+      rulebook TEXT DEFAULT '',                   -- 规则区/判定细则
       -- [架构四大件]
       premise TEXT DEFAULT '',                    -- 故事前提
       worldbuilding TEXT DEFAULT '',              -- 世界观
@@ -251,6 +592,11 @@ function createTables(db: BetterSqlite3.Database) {
       user_guidance TEXT DEFAULT '',              -- 用户预设指导
       notes TEXT DEFAULT '',                      -- 后处理提取的章节要点
       notes_updated_at TEXT DEFAULT '',           -- notes 提取时间
+      asset_refs TEXT NOT NULL DEFAULT '[]',      -- 章节引用资产 [{type,id,expect}] (JSON Array)
+      scenes_json TEXT NOT NULL DEFAULT '[]',     -- 场景拆解 (JSON Array)
+      words_target INTEGER NOT NULL DEFAULT 0,    -- 本章目标字数（0 = 用项目基准）
+      status TEXT NOT NULL DEFAULT 'planned',     -- 章节状态（chapter_pipeline.stage 的缓存）
+      beat_tags TEXT NOT NULL DEFAULT '',         -- 节拍标签（逗号分隔）
       created_at TEXT DEFAULT (datetime('now')),
       updated_at TEXT DEFAULT (datetime('now'))
     );
@@ -281,6 +627,8 @@ function createTables(db: BetterSqlite3.Database) {
       cs_key_items TEXT DEFAULT '',               -- 关键道具
       cs_recent_events TEXT DEFAULT '',           -- 最近事件
       cs_known_info TEXT DEFAULT '',              -- 已知信息（信息差/防穿帮追踪，累积维护）
+      cs_talents_json TEXT NOT NULL DEFAULT '[]', -- 天赋/体质（结构化，随剧情变化）
+      cs_skills_json TEXT NOT NULL DEFAULT '[]',  -- 功法/技能（结构化，随剧情变化）
       cs_updated_at_chapter INTEGER DEFAULT 0,    -- 状态更新于第几章
       created_at TEXT DEFAULT (datetime('now')),
       updated_at TEXT DEFAULT (datetime('now'))
@@ -293,7 +641,7 @@ function createTables(db: BetterSqlite3.Database) {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       chapter_number INTEGER NOT NULL,            -- 归属章节
       kind TEXT NOT NULL DEFAULT 'scene',         -- header（题图，每章一张） | scene（场景插图，可多张）
-      path TEXT NOT NULL DEFAULT '',              -- 本地图片路径（.vela/images/）
+      path TEXT NOT NULL DEFAULT '',              -- 本地图片路径（.moshu/images/）
       prompt TEXT DEFAULT '',                     -- 生成用提示词
       created_at TEXT DEFAULT (datetime('now'))
     );
@@ -508,7 +856,7 @@ function createTables(db: BetterSqlite3.Database) {
     );
 
     -- 分层摘要：卷摘要（level='arc'，每卷固定若干章）与全书摘要（level='book'，只有一条）
-    -- 新表用 IF NOT EXISTS 创建即可，不需要升 schema 版本（旧版 Vela 打开时忽略这张表）
+    -- 新表用 IF NOT EXISTS 创建即可，不需要升 schema 版本（旧版 墨枢 打开时忽略这张表）
     CREATE TABLE IF NOT EXISTS canon_arc_summaries (
       level TEXT NOT NULL,
       start_chapter INTEGER NOT NULL,
@@ -521,5 +869,11 @@ function createTables(db: BetterSqlite3.Database) {
 
     -- 索引
     CREATE INDEX IF NOT EXISTS idx_llm_calls_time ON llm_calls(created_at);
+
+    ${P1_TABLES_DDL}
+
+    ${P3_TABLES_DDL}
+
+    ${P4_TABLES_DDL}
   `)
 }

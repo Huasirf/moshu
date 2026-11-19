@@ -1,6 +1,6 @@
 import {
   FolderOpen, BookOpen, Users, Milestone, ChartGantt, Search,
-  Home, Zap, ScrollText, Cpu,
+  Home, Zap, ScrollText, Cpu, Package, Activity, ListTree,
 } from 'lucide-react'
 import { useLayoutStore, type SidebarView, type BottomTab } from '../../stores/layout-store'
 import { useWorkflowStore } from '../../stores/workflow-store'
@@ -29,6 +29,9 @@ export default function LeftToolWindowBar() {
     { id: 'project', icon: FolderOpen, label: t('activityBar.project') },
     { id: 'knowledge', icon: BookOpen, label: t('activityBar.knowledge') },
     { id: 'characters', icon: Users, label: t('activityBar.characters') },
+    { id: 'assets', icon: Package, label: t('activityBar.assets') },
+    { id: 'outline', icon: ListTree, label: t('activityBar.outline') },
+    { id: 'status', icon: Activity, label: t('activityBar.status') },
     { id: 'foreshadowing', icon: Milestone, label: t('activityBar.foreshadowing') },
     { id: 'timeline', icon: ChartGantt, label: t('activityBar.timeline') },
     { id: 'search', icon: Search, label: t('activityBar.search') },

@@ -46,7 +46,7 @@ export abstract class BaseWorkflowCommand<TResult = string> {
     prompt: string,
     systemPrompt: string,
     callbacks: StepCallbacks,
-    options?: { responseFormat?: { type: string }; thinking?: boolean },
+    options?: { responseFormat?: { type: string }; thinking?: boolean; maxTokens?: number },
     context?: WorkflowContext,
     primaryModelId?: string
   ): Promise<string> {
@@ -160,7 +160,7 @@ export abstract class BaseWorkflowCommand<TResult = string> {
     prompt: string,
     systemPrompt: string,
     callbacks: StepCallbacks,
-    options?: { responseFormat?: { type: string }; thinking?: boolean },
+    options?: { responseFormat?: { type: string }; thinking?: boolean; maxTokens?: number },
     context?: WorkflowContext,
     modelId?: string
   ): Promise<string> {
@@ -252,7 +252,7 @@ export abstract class BaseWorkflowCommand<TResult = string> {
   protected async callLLMWithBuilder(
     builder: BasePromptBuilder,
     callbacks: StepCallbacks,
-    options?: { responseFormat?: { type: string }; thinking?: boolean },
+    options?: { responseFormat?: { type: string }; thinking?: boolean; maxTokens?: number },
     context?: WorkflowContext,
     primaryModelId?: string
   ): Promise<string> {

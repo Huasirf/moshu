@@ -2,19 +2,22 @@
  * HomeSidebarPanel — 主页侧边栏：项目管理入口 + 最近项目列表
  */
 
-import { FolderOpen, Download, DatabaseBackup, FolderArchive } from 'lucide-react'
+import { useState } from 'react'
+import { FolderOpen, Download, DatabaseBackup, FolderArchive, FolderCog } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useProjectStore } from '../../../stores/project-store'
 import { useLayoutStore } from '../../../stores/layout-store'
 import { ipc } from '../../../services/ipc-client'
 import { Button } from '../../ui/Button'
 import { toast } from '../../ui/Toast'
+import ProjectManagerDialog from '../../dialogs/ProjectManagerDialog'
 
 export default function HomeSidebarPanel() {
   const { t } = useTranslation('pages')
   const currentProject = useProjectStore(s => s.currentProject)
   const recentProjects = useProjectStore(s => s.recentProjects)
   const openProject = useProjectStore(s => s.openProject)
+  const [managerOpen, setManagerOpen] = useState(false)
 
   /** 立即备份项目数据库（自动备份之外的手动快照，另行计数保留） */
   const handleBackupNow = async () => {
@@ -106,6 +109,15 @@ export default function HomeSidebarPanel() {
             <span className="text-xs font-medium" style={{ color: 'var(--color-text-muted)' }}>
               {t('welcome.recentProjects')}
             </span>
+            <button
+              type="button"
+              className="ml-auto flex items-center gap-1 text-[0.65rem] px-1.5 py-1 rounded transition-colors hover:bg-[var(--color-hover)]"
+              style={{ color: 'var(--color-text-muted)', background: 'transparent', border: 'none', cursor: 'pointer' }}
+              onClick={() => setManagerOpen(true)}
+            >
+              <FolderCog size={11} />
+              {t('projectManager.title', { ns: 'dialogs' })}
+            </button>
           </div>
           <div className="space-y-0.5">
             {recentProjects
@@ -139,6 +151,8 @@ export default function HomeSidebarPanel() {
           </div>
         </div>
       )}
+
+      <ProjectManagerDialog open={managerOpen} onClose={() => setManagerOpen(false)} />
     </div>
   )
 }

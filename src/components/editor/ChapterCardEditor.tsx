@@ -1,12 +1,13 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   Save, BookOpen, RefreshCw, Plus, Trash2,
-  Sparkles, PenLine, Layers, GitBranch
+  Sparkles, PenLine, Layers, GitBranch, Clock
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useProjectStore } from '../../stores/project-store'
 import { useWorkflowStore } from '../../stores/workflow-store'
 import { useLayoutStore } from '../../stores/layout-store'
+import { useEditorStore } from '../../stores/editor-store'
 import { ipc } from '../../services/ipc-client'
 import i18n from '../../i18n'
 import {
@@ -17,7 +18,10 @@ import {
 import { guardDirectoryGeneration } from '../../services/workflow-guards'
 import DirectoryConfigDialog from '../dialogs/DirectoryConfigDialog'
 import StoryRehearsalDialog from '../dialogs/StoryRehearsalDialog'
+import TimelineDialog from '../dialogs/TimelineDialog'
 import { appendRehearsalGuidance } from '../../services/story-rehearsal'
+import { markDownstreamBlueprintsStale } from '../../services/workflows/blueprint-staleness'
+import { hasBlueprintContentChange } from '../../shared/blueprint-staleness'
 import type { RehearsalSession } from '../../shared/rehearsal-session'
 import { Button } from '../ui/Button'
 import { Input } from '../ui/Input'
@@ -92,6 +96,7 @@ function ChapterCardEditorSession() {
   // 蓝图生成弹窗（替代原 inline 批量面板）
   const [showBlueprintDialog, setShowBlueprintDialog] = useState(false)
   const [showRehearsal, setShowRehearsal] = useState(false)
+  const [showTimeline, setShowTimeline] = useState(false)
 
   const loadBlueprints = useCallback(async () => {
     if (!projectId || !projectPath) return
@@ -121,10 +126,24 @@ function ChapterCardEditorSession() {
     return () => { mounted = false }
   }, [loadBlueprints])
 
+  // DR-09：大纲树 / 资产详情点击章节时，定位到对应蓝图
+  const pendingFocusChapter = useEditorStore(s => s.pendingChapterFocus)
+  useEffect(() => {
+    if (pendingFocusChapter === null || loading) return
+    const index = blueprints.findIndex(bp => bp.chapterNumber === pendingFocusChapter)
+    if (index >= 0) {
+      setSelectedIdx(index)
+      useEditorStore.getState().clearChapterFocus()
+    } else if (blueprints.length > 0) {
+      // 该章蓝图尚未生成：清掉请求，避免下次打开时误跳到无关章节
+      useEditorStore.getState().clearChapterFocus()
+    }
+  }, [pendingFocusChapter, blueprints, loading])
+
   // 监听工作流完成事件，如果蓝图生成完毕则自动刷新
   useEffect(() => {
     return globalEventBus.on('WORKFLOW_COMPLETE', (payload) => {
-      if (payload.type === 'directory') {
+      if (payload.type === 'directory' || payload.type === 'plan_scenes') {
         if (dirty) {
           toast.warning(t('rehearsal.externalBlueprintChange'))
           return
@@ -171,6 +190,33 @@ function ChapterCardEditorSession() {
     if (!result.success) throw new Error(result.error?.includes('BLUEPRINT_CONFLICT') ? t('chapterCard.saveConflict') : result.error || 'SAVE_FAILED')
   }
 
+  /**
+   * 大纲联动（P2-6）：上游章节的结构字段改动后，把区间内的下游蓝图标记为 stale。
+   * 只打标记不重写内容；下游章节仍需手动「按进度刷新蓝图」。
+   */
+  const markDownstreamStale = async (edited: ChapterBlueprint[]) => {
+    const structural = edited.filter(bp => {
+      const before = savedBlueprints.find(saved => saved.chapterNumber === bp.chapterNumber)
+      return hasBlueprintContentChange(before, bp)
+    })
+    if (structural.length === 0) return
+
+    const marked = new Set<number>()
+    for (const bp of structural) {
+      try {
+        const chapters = await markDownstreamBlueprintsStale(bp.chapterNumber)
+        chapters.forEach(n => marked.add(n))
+      } catch (error) {
+        // 标记失败不影响蓝图保存本身
+        console.warn('[blueprint-staleness] 下游标记失败:', error)
+      }
+    }
+    if (marked.size > 0) {
+      const chapters = Array.from(marked).sort((a, b) => a - b).join(', ')
+      toast.info(t('chapterCard.downstreamStale', { chapters }))
+    }
+  }
+
   /** 更新选中章节蓝图的字段 */
   const updateField = <K extends keyof ChapterBlueprint>(key: K, value: ChapterBlueprint[K]) => {
     setBlueprints(prev =>
@@ -191,6 +237,7 @@ function ChapterCardEditorSession() {
       })
       addLog('info', t('chapterCard.blueprintSaved', { chapter: selected.chapterNumber }))
       toast.success(t('chapterCard.blueprintSaved', { chapter: selected.chapterNumber }))
+      await markDownstreamStale([selected])
     } catch (error) {
       setSaveError(t('rehearsal.saveFailed', { message: String(error) }))
     } finally {
@@ -232,6 +279,7 @@ function ChapterCardEditorSession() {
       setSavedBlueprints(blueprints)
       setDeletedBlueprints([])
       addLog('info', t('chapterCard.allBlueprintsSaved', { count: blueprints.length }))
+      await markDownstreamStale(changed)
     } catch (error) {
       setSaveError(t('rehearsal.saveFailed', { message: String(error) }))
     } finally {
@@ -312,7 +360,26 @@ function ChapterCardEditorSession() {
       keyEvents: bp.keyEvents,
       characters: bp.characters.join('、'),
       userGuidance: bp.userGuidance || '',
+      wordsTarget: bp.wordsTarget || undefined,
     })
+  }
+
+  /** 按当前蓝图拆解场景（结果写回蓝图，完成后自动刷新；有未保存改动时先提示保存） */
+  const handlePlanScenes = async () => {
+    if (!currentProject || !selected) return
+    if (dirty) {
+      toast.warning(t('chapterCard.scenePlanDirty'))
+      return
+    }
+    if ((selected.scenes?.length ?? 0) > 0) {
+      const ok = await confirm(t('chapterCard.scenePlanOverwriteText'), {
+        title: t('chapterCard.scenePlanOverwriteTitle'),
+        confirmText: t('chapterCard.scenePlanGenerate'),
+      })
+      if (!ok) return
+    }
+    const { createPlanScenesWorkflow } = await import('../../services/workflows/chapter-workflow')
+    startWorkflow(createPlanScenesWorkflow(selected), false)
   }
 
   if (loading) {
@@ -445,6 +512,12 @@ function ChapterCardEditorSession() {
         }}
       />}
 
+      <TimelineDialog
+        open={showTimeline}
+        onClose={() => setShowTimeline(false)}
+        initialChapter={selected?.chapterNumber}
+      />
+
       {/* 主区域：左侧列表 + 右侧编辑 */}
       <div className="flex-1 flex flex-col @xl:flex-row min-h-0 overflow-hidden">
         {/* 左侧章节列表 */}
@@ -521,6 +594,9 @@ function ChapterCardEditorSession() {
                   {/* 仅下一章允许写作 */}
                   <Button data-tour="rehearsal" variant="outline" size="sm" disabled={saving} onClick={() => setShowRehearsal(true)}>
                     <GitBranch size={13} />{t('rehearsal.title')}
+                  </Button>
+                  <Button variant="outline" size="sm" disabled={saving} onClick={() => setShowTimeline(true)} title="管理本章与全部章节的事件时间线">
+                    <Clock size={13} />时间线
                   </Button>
                   {nextWriteChapter !== null && selected.chapterNumber === nextWriteChapter && (
                     <Button
@@ -623,6 +699,155 @@ function ChapterCardEditorSession() {
                     rows={2}
                   />
                 </div>
+
+                {/* 场景拆解：决定本章篇幅与节奏，写稿时按场预算分配字数 */}
+                {(() => {
+                  const scenes = selected.scenes ?? []
+                  const budget = scenes.reduce((sum, scene) => sum + (Number(scene.words) || 0), 0)
+                  const target = selected.wordsTarget || currentProject?.novelConfig.wordsPerChapter || 2000
+                  const updateScene = (index: number, patch: Partial<NonNullable<typeof scenes>[number]>) => {
+                    updateField('scenes', scenes.map((scene, i) => (i === index ? { ...scene, ...patch } : scene)))
+                  }
+                  const splitList = (value: string) => value.split(/[,，、\s]+/).filter(Boolean)
+                  return (
+                    <div
+                      className="p-3 rounded-lg border space-y-2"
+                      style={{ borderColor: 'var(--color-border)', backgroundColor: 'var(--color-sidebar)' }}
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <Label className="flex flex-wrap items-center gap-1.5 mb-0">
+                          <Layers size={12} />
+                          {t('chapterCard.scenesTitle')}
+                          <span className="text-[0.7rem] font-normal" style={{ color: 'var(--color-text-muted)' }}>
+                            {t('chapterCard.scenesBudget', { budget, target })}
+                          </span>
+                        </Label>
+                        <div className="flex items-center gap-1.5">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            disabled={saving}
+                            onClick={() => updateField('scenes', [...scenes, { title: t('chapterCard.sceneNewTitle'), words: 500 }])}
+                          >
+                            <Plus size={11} /> {t('chapterCard.sceneAdd')}
+                          </Button>
+                          <Button variant="outline" size="sm" disabled={saving} onClick={() => void handlePlanScenes()}>
+                            <Sparkles size={11} /> {t('chapterCard.scenePlanGenerate')}
+                          </Button>
+                        </div>
+                      </div>
+
+                      {scenes.length === 0 ? (
+                        <p className="text-[0.7rem]" style={{ color: 'var(--color-text-muted)' }}>
+                          {t('chapterCard.scenePlanEmpty')}
+                        </p>
+                      ) : (
+                        <div className="space-y-1.5">
+                          {scenes.map((scene, index) => (
+                            <div
+                              key={scene.id ?? index}
+                              className="p-2 rounded border space-y-1.5"
+                              style={{ borderColor: 'var(--color-border)', backgroundColor: 'var(--color-bg)' }}
+                            >
+                              <div className="flex items-center gap-1.5">
+                                <span className="font-mono text-[0.7rem] opacity-50 shrink-0">#{index + 1}</span>
+                                <Input
+                                  value={scene.title}
+                                  onChange={e => updateScene(index, { title: e.target.value })}
+                                  placeholder={t('chapterCard.sceneTitle')}
+                                  className="h-7 text-xs flex-1"
+                                />
+                                <Input
+                                  type="number"
+                                  value={scene.words ?? 0}
+                                  onChange={e => updateScene(index, { words: parseInt(e.target.value) || 0 })}
+                                  title={t('chapterCard.sceneWords')}
+                                  className="h-7 w-20 text-xs"
+                                />
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  disabled={saving}
+                                  onClick={() => updateField('scenes', scenes.filter((_, i) => i !== index))}
+                                  aria-label={t('chapterCard.sceneRemove')}
+                                >
+                                  <Trash2 size={11} style={{ color: 'var(--color-text-muted)' }} />
+                                </Button>
+                              </div>
+                              <Input
+                                value={scene.goal ?? ''}
+                                onChange={e => updateScene(index, { goal: e.target.value })}
+                                placeholder={t('chapterCard.sceneGoal')}
+                                className="h-7 text-xs"
+                              />
+                              <div className="grid grid-cols-2 gap-1.5">
+                                <Input
+                                  value={scene.conflict ?? ''}
+                                  onChange={e => updateScene(index, { conflict: e.target.value })}
+                                  placeholder={t('chapterCard.sceneConflict')}
+                                  className="h-7 text-xs"
+                                />
+                                <Input
+                                  value={scene.turn ?? ''}
+                                  onChange={e => updateScene(index, { turn: e.target.value })}
+                                  placeholder={t('chapterCard.sceneTurn')}
+                                  className="h-7 text-xs"
+                                />
+                              </div>
+                              <div className="grid grid-cols-2 gap-1.5">
+                                <Input
+                                  value={(scene.props ?? []).join('、')}
+                                  onChange={e => updateScene(index, { props: splitList(e.target.value) })}
+                                  placeholder={t('chapterCard.sceneProps')}
+                                  className="h-7 text-xs"
+                                />
+                                <Input
+                                  value={(scene.characters ?? []).join('、')}
+                                  onChange={e => updateScene(index, { characters: splitList(e.target.value) })}
+                                  placeholder={t('chapterCard.sceneCharacters')}
+                                  className="h-7 text-xs"
+                                />
+                              </div>
+                              <div className="grid grid-cols-2 gap-1.5">
+                                <Input
+                                  value={scene.location ?? ''}
+                                  onChange={e => updateScene(index, { location: e.target.value })}
+                                  placeholder="地点（如 三号投候室）"
+                                  className="h-7 text-xs"
+                                />
+                                <Input
+                                  value={scene.bigSceneId ?? ''}
+                                  onChange={e => updateScene(index, { bigSceneId: e.target.value })}
+                                  placeholder="大场景编号（同一场景沿用）"
+                                  className="h-7 text-xs"
+                                />
+                              </div>
+                              <div className="grid grid-cols-2 gap-1.5">
+                                <Input
+                                  value={scene.change ?? ''}
+                                  onChange={e => updateScene(index, {
+                                    change: (e.target.value === '' ? undefined : e.target.value) as 'none' | 'small' | 'big' | undefined,
+                                  })}
+                                  placeholder="切换：none / small / big"
+                                  className="h-7 text-xs"
+                                />
+                                <Input
+                                  type="number"
+                                  value={scene.envQuota ?? ''}
+                                  onChange={e => updateScene(index, {
+                                    envQuota: e.target.value === '' ? undefined : (parseInt(e.target.value) || 0),
+                                  })}
+                                  placeholder="环境配额（句）"
+                                  className="h-7 text-xs"
+                                />
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })()}
 
                 {/* 作者微操指导 — 特别标注，写稿时注入为最高优先级 */}
                 <div

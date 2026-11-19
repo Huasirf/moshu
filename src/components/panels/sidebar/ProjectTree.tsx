@@ -1,4 +1,4 @@
-/**
+﻿/**
  * ProjectTree — 项目导航树（侧边栏核心视图）
  *
  * 包含：小说配置、故事架构、章节蓝图、草稿箱、正文章节、全局摘要
@@ -127,7 +127,7 @@ export default function ProjectTree() {
     .filter(Boolean)
     .sort((a, b) => a!.chapterNumber - b!.chapterNumber)
     .map(draft => ({
-      path: `vela://manuscript/${draft!.id}`, // 诸如 vela://manuscript/42
+      path: `moshu://manuscript/${draft!.id}`, // 诸如 moshu://manuscript/42
       name: `chapter_${draft!.chapterNumber}.md`, // 提供格式化的伪文件名供组件适配解析
       isDir: false,
     })) as Array<{ path: string; name: string; isDir: boolean }>
@@ -278,7 +278,7 @@ function WorldBuildingGroup({
         <div>
           {archFiles.map(f => {
             const isGenerated = archStatus[f.key]
-            const filePath = `vela://core/${f.key}`
+            const filePath = `moshu://core/${f.key}`
             return (
               <ArchFileRow
                 key={f.key}

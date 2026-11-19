@@ -8,10 +8,9 @@ import { useLayoutStore } from '../../stores/layout-store'
 import { useWorkflowStore, type WorkflowStep, type WorkflowRun } from '../../stores/workflow-store'
 import { Button } from '../ui/Button'
 
-/** 下方工具窗口 */
+/** 下方工具窗口（挂载/卸载由 App 根据 bottomPanelOpen 控制） */
 export default function BottomPanel() {
   const { t } = useTranslation('panels')
-  const bottomPanelOpen = useLayoutStore(s => s.bottomPanelOpen)
   const bottomTab = useLayoutStore(s => s.bottomTab)
   const toggleBottomPanel = useLayoutStore(s => s.toggleBottomPanel)
   // 折叠为原始值订阅：流式期间 activeRuns 引用高频变化，面板壳只关心运行状态与数量
@@ -25,21 +24,6 @@ export default function BottomPanel() {
     models: t('bottomPanel.tabs.models'),
   }
 
-  // A) 懒卸载：面板关闭时保持挂载，仅视觉隐藏，避免切换时的短暂状态错乱
-  const [visible, setVisible] = useState(bottomPanelOpen)
-  useEffect(() => {
-    if (bottomPanelOpen) {
-      /* intentionally deferred to avoid cascading render */
-      setTimeout(() => setVisible(true), 0)
-    } else {
-      // 等待动画完成后再卸载
-      const t = setTimeout(() => setVisible(false), 300)
-      return () => clearTimeout(t)
-    }
-  }, [bottomPanelOpen])
-
-  if (!visible) return null
-
   const activeTab = bottomTab || 'tasks'
   const label = TAB_LABELS[activeTab] ?? activeTab
 
@@ -49,10 +33,6 @@ export default function BottomPanel() {
       style={{
         backgroundColor: 'var(--color-panel)',
         borderTop: '1px solid var(--color-border)',
-        // A) 懒卸载过渡：关闭时先动画淡出再完全隐藏
-        opacity: bottomPanelOpen ? 1 : 0,
-        transition: 'opacity 0.25s ease',
-        pointerEvents: bottomPanelOpen ? 'auto' : 'none',
       }}
     >
       {/* 面板标题头 */}
@@ -63,7 +43,7 @@ export default function BottomPanel() {
         {/* 左侧：面板名称 + 可选状态点 */}
         <div className="flex items-center gap-2">
           <span
-            className="text-xs font-semibold uppercase tracking-widest"
+            className="text-xs font-medium"
             style={{ color: 'var(--color-text-muted)' }}
           >
             {label}
@@ -147,7 +127,7 @@ function TaskRunView() {
       {/* 历史记录（简表） */}
       {history.length > 0 && (
         <div className="flex-shrink-0">
-          <div className="px-4 pt-3 pb-1 text-[0.68rem] font-semibold uppercase tracking-wider" style={{ color: 'var(--color-text-muted)' }}>
+          <div className="px-4 pt-3 pb-1 text-[0.68rem] font-medium" style={{ color: 'var(--color-text-muted)' }}>
             {t('bottomPanel.historyTasks')}
           </div>
           <div className="px-2 pb-2">

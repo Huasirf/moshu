@@ -1,6 +1,6 @@
-import { create } from 'zustand'
+﻿import { create } from 'zustand'
 import { ipc } from '../services/ipc-client'
-import type { ModelProfile, LLMResponse, TokenUsage } from '../shared/ipc-channels'
+import type { ModelProfile, LLMResponse, TokenUsage, ThinkingLevel } from '../shared/ipc-channels'
 import i18n from '../i18n'
 
 /** 流式生成的回调 */
@@ -33,24 +33,24 @@ interface LLMState {
   saveModel: (model: ModelProfile) => Promise<{ success: boolean; error?: string }>
   /** 删除模型 */
   deleteModel: (modelId: string) => Promise<boolean>
-  /** 设置默认生成模型（持久化到 ~/.vela/config.json） */
+  /** 设置默认生成模型（持久化到 ~/.moshu/config.json） */
   setDefaultModel: (modelId: string) => void
-  /** 设置默认向量模型（持久化到 ~/.vela/config.json） */
+  /** 设置默认向量模型（持久化到 ~/.moshu/config.json） */
   setDefaultEmbeddingModel: (modelId: string) => void
-  /** 设置默认文生图模型（持久化到 ~/.vela/config.json） */
+  /** 设置默认文生图模型（持久化到 ~/.moshu/config.json） */
   setDefaultImageModel: (modelId: string) => void
   /** 非流式生成 */
   generate: (
     messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>,
     modelId?: string,
-    options?: { responseFormat?: { type: string }; thinking?: boolean }
+    options?: { responseFormat?: { type: string }; thinking?: boolean | ThinkingLevel }
   ) => Promise<LLMResponse>
   /** 流式生成 */
   generateStream: (
     messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>,
     callbacks: StreamCallbacks,
     modelId?: string,
-    options?: { responseFormat?: { type: string }; thinking?: boolean }
+    options?: { responseFormat?: { type: string }; thinking?: boolean | ThinkingLevel; maxTokens?: number }
   ) => Promise<string>
   /** 取消生成 */
   cancelGeneration: (requestId: string) => Promise<void>
@@ -68,7 +68,7 @@ export const useLLMStore = create<LLMState>()((set, get) => ({
 
   init: async () => {
     if (get().loaded) return
-    // 从 ~/.vela/ 加载模型列表和默认模型 ID
+    // 从 ~/.moshu/ 加载模型列表和默认模型 ID
     await get().loadModels()
     if (ipc.isElectron) {
       const [defaultId, defaultEmbeddingId, defaultImageId] = await Promise.all([
@@ -195,7 +195,8 @@ export const useLLMStore = create<LLMState>()((set, get) => ({
       messages,
       stream: true,
       responseFormat: options?.responseFormat as { type: 'json_object' | 'text' } | undefined,
-      thinking: options?.thinking
+      thinking: options?.thinking,
+      maxTokens: options?.maxTokens,
     })) as { requestId: string; started: boolean } | undefined
 
     // 模型未找到/未配置时主进程直接返回 started:false，不会发任何流事件；

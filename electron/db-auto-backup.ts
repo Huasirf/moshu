@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 项目数据库自动滚动备份
  *
  * 打开项目后、以及项目保持打开期间每小时检查一次：距上一份自动备份超过 AUTO_BACKUP_MIN_INTERVAL_MS
@@ -9,7 +9,7 @@ import fs from 'node:fs'
 import type BetterSqlite3 from 'better-sqlite3'
 import { snapshotDatabase, listBackups, pruneBackups } from './db-backup'
 
-/** 自动备份的文件类别（文件名 vela-auto-<时间戳>.db） */
+/** 自动备份的文件类别（文件名 moshu-auto-<时间戳>.db） */
 export const AUTO_BACKUP_LABEL = 'auto'
 /** 两次自动备份的最小间隔 */
 const AUTO_BACKUP_MIN_INTERVAL_MS = 6 * 60 * 60 * 1000
@@ -65,9 +65,9 @@ async function backupIfDue(s: Session): Promise<void> {
   if (last !== null && Date.now() - last < AUTO_BACKUP_MIN_INTERVAL_MS) return
   try {
     const file = await backupNow(s.db, s.projectPath)
-    console.log(`[Vela DB] 自动备份完成: ${file}`)
+    console.log(`[MoShu DB] 自动备份完成: ${file}`)
   } catch (e) {
-    console.warn('[Vela DB] 自动备份失败（下次检查时重试）:', e)
+    console.warn('[MoShu DB] 自动备份失败（下次检查时重试）:', e)
   }
 }
 

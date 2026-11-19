@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 草稿状态管理 — 管理各章节草稿列表、定稿操作等
  *
  * 数据来源：drafts/ch{N}/index.json（md+json 分离方案）
@@ -67,7 +67,7 @@ export const useDraftStore = create<DraftState>()((set, get) => ({
         status: m.status as DraftStatus,
         source: m.source as DraftMeta['source'],
         fileName: `draft_v${m.version}.md`,
-        filePath: `vela://draft/${m.id}`
+        filePath: `moshu://draft/${m.id}`
       }))
 
       // 按版本号排序（新 → 旧）
@@ -99,7 +99,7 @@ export const useDraftStore = create<DraftState>()((set, get) => ({
           status: m.status as DraftStatus,
           source: m.source as DraftMeta['source'],
           fileName: `draft_v${m.version}.md`,
-          filePath: `vela://draft/${m.id}`,
+          filePath: `moshu://draft/${m.id}`,
         }
         ;(newDraftsByChapter[m.chapterNumber] ??= []).push(meta)
       }
@@ -146,8 +146,8 @@ export const useDraftStore = create<DraftState>()((set, get) => ({
 
       let targetDraftId: number | undefined
       // 统一通过 DB 更新草稿内容
-      if (filePath.startsWith('vela://draft/') || filePath.startsWith('vela://manuscript/')) {
-        const prefix = filePath.startsWith('vela://draft/') ? 'vela://draft/' : 'vela://manuscript/'
+      if (filePath.startsWith('moshu://draft/') || filePath.startsWith('moshu://manuscript/')) {
+        const prefix = filePath.startsWith('moshu://draft/') ? 'moshu://draft/' : 'moshu://manuscript/'
         targetDraftId = parseInt(filePath.replace(prefix, ''))
         await ipc.invoke('db:draft-update-content', targetDraftId, mergedText, mergedText.length)
       } else {
@@ -200,12 +200,12 @@ export const useDraftStore = create<DraftState>()((set, get) => ({
 // ===== 辅助工具导出 =====
 
 /**
- * 读取草稿文件正文（委托给 vela-protocol 统一路由）
- * @deprecated 建议直接使用 readVelaContent()
+ * 读取草稿文件正文（委托给 moshu-protocol 统一路由）
+ * @deprecated 建议直接使用 readMoshuContent()
  */
 export async function readDraftBody(filePath: string): Promise<string> {
-  const { readVelaContent } = await import('../services/vela-protocol')
-  return readVelaContent(filePath)
+  const { readMoshuContent } = await import('../services/moshu-protocol')
+  return readMoshuContent(filePath)
 }
 
 export type { DraftMeta, DraftStatus }

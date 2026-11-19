@@ -9,6 +9,7 @@
 
 import { BaseWorkflowCommand, CommandExecuteParams } from './base-command'
 import { useProjectStore } from '../../../stores/project-store'
+import { useAssetProposalStore } from '../../../stores/asset-proposal-store'
 import { getPromptTemplate } from '../../prompt-templates'
 import { ImportPromptBuilder } from '../../prompts/prompt-builder'
 import { ipc } from '../../ipc-client'
@@ -184,8 +185,51 @@ export class InferGlobalSettingsCommand extends BaseWorkflowCommand<void> {
       characterCards: Array<Record<string, unknown>>
     }>(rawResult)
 
+    // ===== 拆书产物分层确认（DR-06）=====
+    // 世界观 / 人物 / 关系属于高风险结构化设定，写入前必须由作者确认；
+    // 章节大纲与节拍由下一步自动落库，不进入确认。
+    const inferredConfig: Record<string, string> = { ...(inferResult.novelConfig ?? {}) }
+    const architectureFiles = inferResult.architectureFiles ?? {}
+
+    const cardsToSave: CharacterData[] = []
+    if (inferResult.characterCards && Array.isArray(inferResult.characterCards)) {
+      const validRoles = ['protagonist', 'antagonist', 'supporting', 'minor']
+      for (const card of inferResult.characterCards) {
+        if (!card.name) continue
+        const role = validRoles.includes(card.role as string) ? card.role : 'supporting'
+        cardsToSave.push({
+          name: card.name as string,
+          role: role as 'protagonist' | 'antagonist' | 'supporting' | 'minor',
+          gender: (card.gender as string) || '',
+          age: (card.age as string) || '',
+          appearance: (card.appearance as string) || '',
+          personality: (card.personality as string) || '',
+          background: (card.background as string) || '',
+          abilities: (card.abilities as string) || '',
+          motivation: (card.motivation as string) || '',
+          relationships: (card.relationships as string) || '',
+          arc: (card.arc as string) || '',
+          notes: (card.notes as string) || ''
+        })
+      }
+    }
+
+    callbacks.setProgress(72)
+    callbacks.log(t('importNovel.awaitingConfirmation'))
+    const decision = await useAssetProposalStore.getState().request({
+      world: architectureFiles.world || inferredConfig.worldSetting || '',
+      premise: architectureFiles.premise,
+      synopsis: architectureFiles.synopsis,
+      characters: cardsToSave,
+      novelConfig: inferredConfig,
+    })
+    callbacks.log(decision === 'apply'
+      ? t('importNovel.confirmationApplied')
+      : t('importNovel.confirmationSkipped'))
+    callbacks.setProgress(78)
+
     // ===== 写入小说配置 =====
-    if (inferResult.novelConfig) {
+    if (decision === 'apply' && inferResult.novelConfig) {
       const novelConfig = {
         ...project.novelConfig,
         ...inferResult.novelConfig,
@@ -210,21 +254,24 @@ export class InferGlobalSettingsCommand extends BaseWorkflowCommand<void> {
         await ipc.invoke('project:save', plainData.id, plainData)
       }
       callbacks.log(t('importNovel.configUpdated'))
+    }
 
-      // 生成配置摘要供后续步骤使用
+    // 配置摘要供后续蓝图推演使用（无论是否写入，都以推断结果为上下文）
+    const summaryConfig = { ...project.novelConfig, ...(inferResult.novelConfig ?? {}) }
+    {
       const noneLabel = t('importNovel.novelConfigSummaryNone')
       context.data.novelConfigSummary =
-        `${t('importNovel.novelConfigSummaryGenre', { value: novelConfig.genre || noneLabel })} | ` +
-        `${t('importNovel.novelConfigSummarySubGenre', { value: novelConfig.subGenre || noneLabel })} | ` +
-        `${t('importNovel.novelConfigSummaryAudience', { value: novelConfig.targetAudience || noneLabel })}\n` +
-        `${t('importNovel.novelConfigSummaryOutline', { value: novelConfig.coreOutline || noneLabel })}\n` +
-        `${t('importNovel.novelConfigSummaryWorldSetting', { value: novelConfig.worldSetting || noneLabel })}\n` +
-        `${t('importNovel.novelConfigSummaryGoldenFinger', { value: novelConfig.goldenFinger || noneLabel })}\n` +
-        `${t('importNovel.novelConfigSummaryProtagonist', { value: novelConfig.protagonistProfile || noneLabel })}`
+        `${t('importNovel.novelConfigSummaryGenre', { value: summaryConfig.genre || noneLabel })} | ` +
+        `${t('importNovel.novelConfigSummarySubGenre', { value: summaryConfig.subGenre || noneLabel })} | ` +
+        `${t('importNovel.novelConfigSummaryAudience', { value: summaryConfig.targetAudience || noneLabel })}\n` +
+        `${t('importNovel.novelConfigSummaryOutline', { value: summaryConfig.coreOutline || noneLabel })}\n` +
+        `${t('importNovel.novelConfigSummaryWorldSetting', { value: summaryConfig.worldSetting || noneLabel })}\n` +
+        `${t('importNovel.novelConfigSummaryGoldenFinger', { value: summaryConfig.goldenFinger || noneLabel })}\n` +
+        `${t('importNovel.novelConfigSummaryProtagonist', { value: summaryConfig.protagonistProfile || noneLabel })}`
     }
 
     // ===== 写入架构信息 =====
-    if (inferResult.architectureFiles) {
+    if (decision === 'apply' && inferResult.architectureFiles) {
       await ipc.invoke('db:project-core-update', {
         premise: inferResult.architectureFiles.premise,
         charactersArch: inferResult.architectureFiles.characters,
@@ -235,35 +282,11 @@ export class InferGlobalSettingsCommand extends BaseWorkflowCommand<void> {
     }
 
     // ===== 写入角色卡 =====
-    if (inferResult.characterCards && Array.isArray(inferResult.characterCards)) {
-      let createdCount = 0
-      const cardsToSave: CharacterData[] = []
-      for (const card of inferResult.characterCards) {
-        if (!card.name) continue
-        const validRoles = ['protagonist', 'antagonist', 'supporting', 'minor']
-        const role = validRoles.includes(card.role as string) ? card.role : 'supporting'
-        cardsToSave.push({
-          name: card.name as string,
-          role: role as 'protagonist' | 'antagonist' | 'supporting' | 'minor',
-          gender: (card.gender as string) || '',
-          age: (card.age as string) || '',
-          appearance: (card.appearance as string) || '',
-          personality: (card.personality as string) || '',
-          background: (card.background as string) || '',
-          abilities: (card.abilities as string) || '',
-          motivation: (card.motivation as string) || '',
-          relationships: (card.relationships as string) || '',
-          arc: (card.arc as string) || '',
-          notes: (card.notes as string) || ''
-        })
-        createdCount++
-      }
-      if (cardsToSave.length > 0) {
-        // 并回库中已有的口癖/人设图，避免重新推演覆盖已生成/已推断的数据
-        const merged = await mergePreservedCharacterAssets(cardsToSave)
-        await ipc.invoke('db:character-save-all', merged)
-      }
-      callbacks.log(t('importNovel.cardsGenerated', { count: createdCount }))
+    if (decision === 'apply' && cardsToSave.length > 0) {
+      // 并回库中已有的口癖/人设图，避免重新推演覆盖已生成/已推断的数据
+      const merged = await mergePreservedCharacterAssets(cardsToSave)
+      await ipc.invoke('db:character-save-all', merged)
+      callbacks.log(t('importNovel.cardsGenerated', { count: cardsToSave.length }))
     }
 
     callbacks.setProgress(90)

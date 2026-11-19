@@ -8,14 +8,14 @@ import { cn } from '../../lib/utils'
 
 export const buttonVariants = cva(
   /* 基础：加入顺滑过渡和点击缩小回弹效果，提升交互手感 */
-  'inline-flex items-center justify-center gap-1.5 text-xs font-medium transition-all duration-200 ease-out active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 focus-visible:ring-offset-[var(--color-bg)] focus-visible:ring-[var(--color-accent)] disabled:pointer-events-none disabled:opacity-50 cursor-pointer',
+  'inline-flex items-center justify-center gap-1.5 text-[length:var(--ctrl-font)] font-medium transition-all duration-200 ease-out active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 focus-visible:ring-offset-[var(--color-bg)] focus-visible:ring-[var(--color-accent)] disabled:pointer-events-none disabled:opacity-50 cursor-pointer',
   {
     variants: {
       variant: {
         default:
           'btn-primary text-white',
         ai:
-          'ai-glow text-white shadow-sm hover:shadow-md relative overflow-hidden',
+          'bg-[var(--color-accent)] text-white hover:brightness-110 active:brightness-95',
         destructive:
           'bg-[var(--color-error)] text-white shadow-sm hover:shadow-md hover:shadow-[var(--color-error)]/30 transition-all duration-200 hover:brightness-110 active:scale-[0.96]',
         outline:
@@ -26,10 +26,10 @@ export const buttonVariants = cva(
           'bg-[var(--color-success)] text-white shadow-sm hover:shadow-md hover:shadow-[var(--color-success)]/30 transition-all duration-200 hover:brightness-110 active:scale-[0.96]',
       },
       size: {
-        default: 'h-7 px-3 py-1 rounded-[var(--radius-md)]',    /* 28px 高 */
-        sm:      'h-6 px-2.5 py-0.5 rounded-[var(--radius-sm)]', /* 24px 高 */
-        lg:      'h-8 px-4 py-1.5 rounded-[var(--radius-lg)]',   /* 32px 高 */
-        icon:    'h-7 w-7 p-0 rounded-[var(--radius-md)]',       /* 28x28 方形图标按钮 */
+        default: 'h-9 px-3.5 py-1.5 rounded-[var(--radius-md)]',  /* 36px 高 */
+        sm:      'h-8 px-3 py-1 rounded-[var(--radius-md)]',      /* 32px 高 */
+        lg:      'h-11 px-5 py-2 rounded-[var(--radius-lg)]',     /* 44px 高 */
+        icon:    'h-9 w-9 p-0 rounded-[var(--radius-md)]',        /* 36x36 方形图标按钮 */
       },
     },
     defaultVariants: {

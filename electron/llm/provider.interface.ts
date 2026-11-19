@@ -1,10 +1,11 @@
-import { ModelProfile } from '../../src/shared/ipc-channels'
+import { ModelProfile, ThinkingLevel } from '../../src/shared/ipc-channels'
 
 export interface LLMGenerateOptions {
   temperature: number
   maxTokens: number
   responseFormat?: { type: string }
-  thinking?: boolean
+  /** 已解析的思考档位；undefined = 不发送任何思考参数 */
+  thinking?: ThinkingLevel
 }
 
 export interface LLMStreamOptions extends LLMGenerateOptions {

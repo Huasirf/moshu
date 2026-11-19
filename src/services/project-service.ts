@@ -1,4 +1,4 @@
-/**
+﻿/**
  * ProjectService — 项目生命周期与跨 Store 协调的单例调度层
  *
  * 职责：
@@ -170,7 +170,7 @@ async function syncEditorTabsForChapter(chapterNumber: number): Promise<void> {
     for (const tab of relatedTabs) {
       if (!tab.filePath) continue
       let content = ''
-      if (tab.filePath.startsWith('vela://')) {
+      if (tab.filePath.startsWith('moshu://')) {
         const { readDraftBody } = await import('../stores/draft-store')
         content = await readDraftBody(tab.filePath)
       } else {

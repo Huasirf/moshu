@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+﻿import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -18,8 +18,8 @@ describe('MCP 首次运行确认', () => {
   let approvalsPath: string
 
   beforeEach(() => {
-    // 审批记录写到临时目录，不碰真实的 ~/.vela
-    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vela-mcp-approval-'))
+    // 审批记录写到临时目录，不碰真实的 ~/.moshu
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'moshu-mcp-approval-'))
     approvalsPath = path.join(dir, 'mcp-approvals.json')
   })
 

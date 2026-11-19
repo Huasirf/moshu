@@ -1,5 +1,6 @@
 import type { PromptTemplate } from '../prompt-templates'
 import { BUILTIN_PROMPTS, getLocalizedContent, getLocalizedSystemRole, getLocalizedSystemSuffix } from '../prompt-templates'
+import { resolveWordTiers } from '../word-count-gate'
 import { markCacheable } from '../../shared/prompt-cache'
 
 /**
@@ -67,6 +68,32 @@ export class BasePromptBuilder {
 }
 
 /**
+ * 长世界观截断：优先保留“世界总览 / 等级体系 / 闯入规则 / 月供”与“关卡体系 / 副本生成规则”，
+ * 省略与【人物群像】重复的【人物与势力】段，避免 25K 字设定把 prompt 撑爆或被中段挤掉关卡卡。
+ */
+export function truncateWorldSetting(text: string, max = 24000): string {
+  const src = (text || '').trim()
+  if (!src || src.length <= max) return src
+
+  const charStart = src.indexOf('【人物与势力】')
+  const levelStart = src.indexOf('【关卡体系】')
+  if (charStart > 0 && levelStart > charStart) {
+    const head = src.slice(0, charStart).trimEnd()
+    const tail = src.slice(levelStart).trimStart()
+    return `${head}\n\n（中段【人物与势力】已省略，人物设定见【人物群像（静态设定）】）\n\n${tail}`
+  }
+
+  return `${src.slice(0, 6000)}\n\n（中段省略）\n\n${src.slice(-9000)}`
+}
+
+/** 规则区是判定唯一口径，必须完整注入；仅在极端超长时截断提示。 */
+export function truncateRulebook(text: string, max = 9000): string {
+  const src = (text || '').trim()
+  if (!src || src.length <= max) return src
+  return `${src.slice(0, max)}\n\n（规则区超过 ${max} 字，后续条目已省略；请精简规则区）`
+}
+
+/**
  * 章节生成专用 Builder
  * 提供全链条上下文强类型注入，拒绝 raw Record<string,string> 的 "盲打模式"
  */
@@ -74,6 +101,27 @@ export class ChapterPromptBuilder extends BasePromptBuilder {
   
   withArchitecture(architecture: string) {
     this.variables.architecture = architecture;
+    return this;
+  }
+
+  /** 注入完整世界设定（含关卡卡与试炼副本规则），模板需预留 {{world_setting}} */
+  withWorldSetting(worldSetting: string) {
+    this.variables.world_setting = truncateWorldSetting(worldSetting)
+    return this;
+  }
+
+  /** 注入规则区（属性/精神力/伤势/结算判定），模板需预留 {{rulebook}} */
+  withRulebook(rulebook: string) {
+    this.variables.rulebook = truncateRulebook(rulebook)
+    return this;
+  }
+
+  /**
+   * 注入「已装配好的规则文本」（三层切片：硬规则摘要 + 本章相关全文 + 未展开清单）。
+   * 不再二次截断，避免把结构化层边界截掉。
+   */
+  withRulebookInjection(text: string) {
+    this.variables.rulebook = text || '';
     return this;
   }
 
@@ -142,8 +190,11 @@ export class ChapterPromptBuilder extends BasePromptBuilder {
     this.variables.word_number = String(wordNumber);
     const n = Number(wordNumber)
     if (Number.isFinite(n) && n > 0) {
-      this.variables.word_number_min = String(Math.round(n * 0.95))
-      this.variables.word_number_max = String(Math.round(n * 1.25))
+      const tiers = resolveWordTiers(n)
+      // 下限取「目标 95%」与门禁绝对下限的较大者，上限直接用门禁的正常区间上限，
+      // 保证提示词要求与 judgeWordCount 的判定口径完全一致
+      this.variables.word_number_min = String(Math.max(Math.round(n * 0.95), tiers.shortFloor))
+      this.variables.word_number_max = String(tiers.normalMax)
     } else {
       this.variables.word_number_min = String(wordNumber)
       this.variables.word_number_max = String(wordNumber)
@@ -207,6 +258,12 @@ export class ChapterPromptBuilder extends BasePromptBuilder {
     this.variables.style_reference = text;
     return this;
   }
+
+  /** 本地去味规则命中的高风险片段（去 AI 味时作为优先改写清单） */
+  withRuleFindings(text: string) {
+    this.variables.rule_findings = text;
+    return this;
+  }
 }
 
 /**
@@ -230,6 +287,12 @@ export class ReviewPromptBuilder extends BasePromptBuilder {
 
   withWorldBuilding(world: string) {
     this.variables.world_building = world;
+    return this;
+  }
+
+  /** 规则区（用于规则合规审查），模板需预留 {{system_rules}} */
+  withSystemRules(rulebook: string) {
+    this.variables.system_rules = truncateRulebook(rulebook)
     return this;
   }
 
@@ -297,6 +360,24 @@ export class PostProcessPromptBuilder extends BasePromptBuilder {
   withArcSummaries(text: string, coveredUntil: number) {
     this.variables.arc_summaries = text;
     this.variables.covered_until = String(coveredUntil);
+    return this;
+  }
+
+  /** 时间线抽取：本书历法 / 起点 / 流速 / 口径 */
+  withTimelineConfig(text: string) {
+    this.variables.timeline_config = text;
+    return this;
+  }
+
+  /** 时间线抽取：前情已确认事件（文本） */
+  withPreviousTimeline(text: string) {
+    this.variables.previous_events = text;
+    return this;
+  }
+
+  /** 时间线抽取：本章章纲计划事件（文本） */
+  withBlueprintTimeline(text: string) {
+    this.variables.blueprint_events = text;
     return this;
   }
 }
@@ -508,6 +589,12 @@ export class RefreshBlueprintPromptBuilder extends BasePromptBuilder {
 
   withGlobalGuidance(guidance: string) {
     this.variables.global_guidance = guidance;
+    return this;
+  }
+
+  /** 规则区（修正蓝图时不得违反），模板需预留 {{rulebook}} */
+  withRulebook(rulebook: string) {
+    this.variables.rulebook = truncateRulebook(rulebook)
     return this;
   }
 

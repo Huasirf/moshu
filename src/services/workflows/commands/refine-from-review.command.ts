@@ -1,4 +1,4 @@
-import { BaseWorkflowCommand, CommandExecuteParams } from './base-command'
+﻿import { BaseWorkflowCommand, CommandExecuteParams } from './base-command'
 import { useProjectStore } from '../../../stores/project-store'
 import { getPromptTemplate } from '../../prompt-templates'
 import { ChapterPromptBuilder } from '../../prompts/prompt-builder'
@@ -54,6 +54,7 @@ export class RefineFromReviewCommand extends BaseWorkflowCommand<string> {
       .withReviewReport(this.params.reviewReport)
       .withDraftContent(this.params.draftContent)
       .withGlobalGuidance(project.novelConfig.globalGuidance || '')
+      .withRulebook(project.novelConfig.rulebook || '')
       .withUserRefinePrompt(userPromptBlock)
 
     // ==========================================
@@ -168,7 +169,7 @@ export class RefineFromReviewCommand extends BaseWorkflowCommand<string> {
         content: finalRefined,
         revisionPath: String(createRes.id),
         chapterNumber: this.params.chapterNumber,
-        chapterDir: `vela://draft/ch${this.params.chapterNumber}`,
+        chapterDir: `moshu://draft/ch${this.params.chapterNumber}`,
       })
     }
 

@@ -1,5 +1,5 @@
-/**
- * Vela Design Tokens
+﻿/**
+ * 墨枢 Design Tokens
  * Auto-extracted from src/index.css CSS custom properties
  *
  * Usage:

@@ -1,4 +1,4 @@
-import { app, ipcMain, type BrowserWindow } from 'electron'
+﻿import { app, ipcMain, type BrowserWindow } from 'electron'
 
 /**
  * 关窗前刷盘守卫
@@ -68,7 +68,7 @@ function requestFlush(g: GuardState) {
   g.pending = true
   g.win.webContents.send('app:before-close')
   g.timer = setTimeout(() => {
-    console.warn('[Vela] 渲染进程未在限定时间内完成关窗前保存，强制关闭')
+    console.warn('[MoShu] 渲染进程未在限定时间内完成关窗前保存，强制关闭')
     proceed(g)
   }, FLUSH_TIMEOUT_MS)
 }

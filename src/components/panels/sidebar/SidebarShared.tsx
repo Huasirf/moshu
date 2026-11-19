@@ -1,4 +1,4 @@
-/* eslint-disable react-refresh/only-export-components -- 本文件是侧栏共享工具模块，工具函数与小组件并存是有意为之 */
+﻿/* eslint-disable react-refresh/only-export-components -- 本文件是侧栏共享工具模块，工具函数与小组件并存是有意为之 */
 /**
  * SidebarShared — 侧边栏共享工具函数、类型定义和常量
  *
@@ -57,9 +57,9 @@ import { ipc } from '../../../services/ipc-client'
 /** 打开架构文件（带 AI 生成工具栏；若 tab 已存在则刷新内容） */
 export async function openArchFile(filePath: string, name: string) {
   let content = ''
-  // 支持 vela://core/ 伪协议路径，从 DB 读取架构字段
-  if (filePath.startsWith('vela://core/')) {
-    const { readCoreContent } = await import('../../../services/vela-protocol')
+  // 支持 moshu://core/ 伪协议路径，从 DB 读取架构字段
+  if (filePath.startsWith('moshu://core/')) {
+    const { readCoreContent } = await import('../../../services/moshu-protocol')
     content = await readCoreContent(filePath)
   } else {
     const result = await ipc.invoke('fs:read-file', filePath)
@@ -95,13 +95,13 @@ export interface DraftTabTarget {
 }
 
 /**
- * 解析一份章节稿子的打开方式：定稿走正文路径（vela://manuscript/），其余走草稿路径
- * （vela://draft/，带修稿 / 审稿工具栏），与侧栏「正文章节」「草稿箱」一致；
+ * 解析一份章节稿子的打开方式：定稿走正文路径（moshu://manuscript/），其余走草稿路径
+ * （moshu://draft/，带修稿 / 审稿工具栏），与侧栏「正文章节」「草稿箱」一致；
  * 同一份稿子已用任一路径打开时复用那个 Tab，不再重复开。
  */
 export function resolveDraftTab(draftId: number, finalized: boolean): DraftTabTarget {
-  const manuscriptPath = `vela://manuscript/${draftId}`
-  const draftPath = `vela://draft/${draftId}`
+  const manuscriptPath = `moshu://manuscript/${draftId}`
+  const draftPath = `moshu://draft/${draftId}`
   const existing = useEditorStore.getState().tabs.find(tab =>
     tab.type === 'chapter' && (tab.filePath === manuscriptPath || tab.filePath === draftPath))
   if (existing?.filePath) return { filePath: existing.filePath, existingTabId: existing.id }
@@ -120,9 +120,9 @@ export async function openDraftTab(target: DraftTabTarget, name: string) {
 /** 打开章节文件 */
 export async function openChapterFile(filePath: string, name: string) {
   let content = ''
-  if (filePath.startsWith('vela://')) {
-    const { readVelaContent } = await import('../../../services/vela-protocol')
-    content = await readVelaContent(filePath)
+  if (filePath.startsWith('moshu://')) {
+    const { readMoshuContent } = await import('../../../services/moshu-protocol')
+    content = await readMoshuContent(filePath)
   } else {
     const result = await ipc.invoke('fs:read-file', filePath)
     content = result.success ? result.content : ''

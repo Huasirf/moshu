@@ -1,11 +1,11 @@
-/**
+﻿/**
  * Skill 注册中心
  *
  * 管理所有可用的 Skill（基于 SKILL.md 的模块化知识包）。
  * 支持：
- * - 内置 Skill（随 Vela 发布的预设 Skill）
- * - 用户 Skill（用户放在 ~/.vela/skills/ 下的自定义 Skill）
- * - 项目 Skill（放在项目的 .vela/skills/ 下的项目级 Skill）
+ * - 内置 Skill（随 墨枢 发布的预设 Skill）
+ * - 用户 Skill（用户放在 ~/.moshu/skills/ 下的自定义 Skill）
+ * - 项目 Skill（放在项目的 .moshu/skills/ 下的项目级 Skill）
  *
  * Skill 格式兼容 Cursor 的 SKILL.md 生态。
  */
@@ -14,6 +14,7 @@ import i18n from '../../i18n'
 import { ipc } from '../ipc-client'
 import { useProjectStore } from '../../stores/project-store'
 import { toolRegistry, type AgentTool } from './tool-registry'
+import type { MutationOp } from '../../shared/mutation-plan'
 
 const t = (key: string, opts?: Record<string, unknown>) => i18n.t(key, { ns: 'panels', ...opts })
 
@@ -135,10 +136,10 @@ class SkillRegistryImpl {
     // 注册内置 Skill
     registerBuiltinSkills(this)
 
-    // 加载用户 Skill（~/.vela/skills/）
+    // 加载用户 Skill（~/.moshu/skills/）
     try {
-      const velaHome = await ipc.invoke('config:get-vela-home')
-      const userSkillsDir = `${velaHome}/skills`
+      const moshuHome = await ipc.invoke('config:get-moshu-home')
+      const userSkillsDir = `${moshuHome}/skills`
       const userCount = await this.loadFromDirectory(userSkillsDir, 'user')
       if (userCount > 0) {
         console.log(`[Skills] 加载了 ${userCount} 个用户 Skill`)
@@ -147,10 +148,10 @@ class SkillRegistryImpl {
       // 静默处理
     }
 
-    // 加载项目 Skill（项目/.vela/skills/）
+    // 加载项目 Skill（项目/.moshu/skills/）
     const project = useProjectStore.getState().currentProject
     if (project) {
-      const projectSkillsDir = `${project.path}/.vela/skills`
+      const projectSkillsDir = `${project.path}/.moshu/skills`
       const projectCount = await this.loadFromDirectory(projectSkillsDir, 'project')
       if (projectCount > 0) {
         console.log(`[Skills] 加载了 ${projectCount} 个项目 Skill`)
@@ -282,6 +283,174 @@ function parseSkillMd(
     baseDir,
     filePath,
   }
+}
+
+// ===== 技能路由表（P2-7） =====
+
+/**
+ * 8 个核心写作技能的路由条目。
+ *
+ * 与上面的 SKILL.md 体系互补：SKILL.md 提供可扩展的知识包，
+ * 路由表约束「哪类意图能用哪些工具、能产生哪些计划操作」，
+ * 让中控 AI 在写库前先落到明确的技能边界内。
+ * DR-02 已定稿：资产类技能复用 `canon_items` 作为资产总表。
+ */
+export type AgentSkillRouteId =
+  | 'write-draft'
+  | 'revise-draft'
+  | 'edit-outline'
+  | 'edit-character'
+  | 'edit-asset'
+  | 'review-chapter'
+  | 'book-breakdown'
+  | 'worldbuilding'
+
+export interface AgentSkillRoute {
+  id: AgentSkillRouteId
+  /** 技能中文名（模型路由用，不直接展示给用户） */
+  name: string
+  /** 触发关键词（中英混合，命中数用于打分） */
+  keywords: string[]
+  /** 该技能允许调用的工具名（白名单） */
+  allowedTools: string[]
+  /** 该技能可生成的 MutationPlan 操作 */
+  planOps: MutationOp[]
+  /** 技能执行要点（命中时注入系统提示词） */
+  guidance: string
+}
+
+export const AGENT_SKILL_ROUTES: readonly AgentSkillRoute[] = [
+  {
+    id: 'write-draft',
+    name: '写正文',
+    keywords: ['写正文', '写这一章', '写一章', '续写', '生成正文', '开始写', '起草', 'write chapter', 'continue writing', 'draft'],
+    allowedTools: [
+      'read_blueprint', 'read_drafts', 'read_assets', 'read_character_state', 'read_relations',
+      'read_architecture', 'search_knowledge', 'story_read', 'story_rewrite_draft', 'open_editor',
+    ],
+    planOps: ['set_pipeline_stage'],
+    guidance: '先读本章蓝图、角色状态与已登记资产；按蓝图的目标、事件和章末钩子写，不凭空发明未登记的关键道具。保存草稿后再把章阶段推进为 drafted。',
+  },
+  {
+    id: 'revise-draft',
+    name: '改正文',
+    keywords: ['改正文', '修改正文', '重写', '改写', '润色', '调整正文', 'revise draft', 'rewrite'],
+    allowedTools: [
+      'story_index', 'story_read', 'story_rewrite_draft', 'story_history', 'story_undo', 'read_review_findings',
+    ],
+    planOps: [],
+    guidance: '全文级改写必须逐章完整读取原文再动笔；局部改动用 rewrite_draft 提交 instruction。保留事件、数字、对话与章末钩子，改完读回核对。已定稿/归档章节不可覆盖。',
+  },
+  {
+    id: 'edit-outline',
+    name: '改大纲',
+    keywords: ['改大纲', '调整大纲', '改蓝图', '修改蓝图', '后续章节', '剧情调整', 'outline', 'blueprint'],
+    allowedTools: ['read_blueprint', 'read_architecture', 'read_project_state', 'story_revise'],
+    planOps: ['update_blueprint'],
+    guidance: '先列出受影响章节；改第 N 章后，N+1 起一段区间的既有蓝图会被标记为 stale，逐章刷新即可，不整卷重写。已定稿正文不因大纲改动自动重写。',
+  },
+  {
+    id: 'edit-character',
+    name: '设角色',
+    keywords: ['设角色', '改角色', '角色卡', '人物设定', '角色状态', '关系', 'character'],
+    allowedTools: ['read_characters', 'read_character_state', 'read_relations', 'story_revise'],
+    planOps: ['update_character', 'set_attribute', 'update_relation'],
+    guidance: '角色卡改设定，角色状态与属性按章记录。数值变化用 set_attribute（带章号），关系变化用 update_relation。改完检查后续蓝图是否仍与人物动机一致。',
+  },
+  {
+    id: 'edit-asset',
+    name: '设资产',
+    keywords: ['设资产', '加道具', '新增设定', '资产库', '物品', '道具', '地点', '势力', 'asset', 'item', 'location'],
+    allowedTools: ['read_assets', 'read_relations'],
+    planOps: ['create_asset', 'update_asset', 'delete_asset'],
+    guidance: '新增前先按「同类型 + 同名」查重，能更新就不要新建；删除资产风险最高，必须在计划中单独说明并等待作者确认。关系两端必须是已存在实体。',
+  },
+  {
+    id: 'review-chapter',
+    name: '审稿',
+    keywords: ['审稿', '审阅', '检查这一章', '找问题', '一致性检查', 'review', 'proofread'],
+    allowedTools: [
+      'read_drafts', 'read_review_findings', 'read_assets', 'read_character_state', 'read_relations', 'read_pipeline',
+    ],
+    planOps: [],
+    guidance: '审稿阶段只读不写。按严重度输出问题清单（error/warning/info）并给证据；需要改正文时先征得作者同意，再切换到改正文技能。',
+  },
+  {
+    id: 'book-breakdown',
+    name: '拆书',
+    keywords: ['拆书', '拆解', '分析这本书', '提取设定', 'benchmark', 'breakdown'],
+    allowedTools: ['read_file', 'search_knowledge', 'read_architecture', 'read_assets'],
+    planOps: ['create_asset', 'update_blueprint'],
+    guidance: '拆书产物（人物、设定、节拍）全部以 pending 状态入库，等待作者逐条确认；不要直接覆盖已有资产。拆出的结构先说明来源章节。',
+  },
+  {
+    id: 'worldbuilding',
+    name: '世界观',
+    keywords: ['世界观', '设定集', '力量体系', '地理', '势力设定', 'worldbuilding', 'lore'],
+    allowedTools: ['read_architecture', 'read_assets', 'read_relations', 'search_knowledge'],
+    planOps: ['create_asset', 'update_asset', 'update_blueprint'],
+    guidance: '世界观条目尽量落成结构化资产（势力/地点/技能/秘密），便于后续按章引用。发现与既有规则冲突时先指出冲突，不擅自改写旧设定。',
+  },
+]
+
+/** 取一个路由条目 */
+export function getAgentSkillRoute(id: AgentSkillRouteId): AgentSkillRoute | undefined {
+  return AGENT_SKILL_ROUTES.find(route => route.id === id)
+}
+
+/**
+ * 按用户意图匹配技能。命中关键词越多得分越高；同分取关键词更长的（更具体）。
+ * 无命中时返回 null，由 Agent 走通用澄清流程。
+ */
+export function matchAgentSkill(intent: string): AgentSkillRoute | null {
+  const text = (intent ?? '').toLowerCase()
+  if (!text.trim()) return null
+
+  let best: AgentSkillRoute | null = null
+  let bestScore = 0
+  let bestSpecificity = 0
+  for (const route of AGENT_SKILL_ROUTES) {
+    const hits = route.keywords.filter(keyword => text.includes(keyword.toLowerCase()))
+    if (hits.length === 0) continue
+    const specificity = Math.max(...hits.map(keyword => keyword.length))
+    if (hits.length > bestScore || (hits.length === bestScore && specificity > bestSpecificity)) {
+      best = route
+      bestScore = hits.length
+      bestSpecificity = specificity
+    }
+  }
+  return best
+}
+
+/**
+ * 生成注入系统提示词的技能路由段。
+ * 传入 intent 时会附带该技能的允许工具与执行要点。
+ */
+export function buildSkillRoutingPrompt(intent?: string): string {
+  const matched = intent ? matchAgentSkill(intent) : null
+  const rows = AGENT_SKILL_ROUTES.map(route => {
+    const ops = route.planOps.length > 0 ? route.planOps.join('/') : '无（只读或走专用工具）'
+    return `| ${route.name} | ${route.keywords.slice(0, 4).join('、')} | ${ops} |`
+  })
+
+  const lines = [
+    '## 技能路由',
+    '先判断作者意图属于下表中哪一种技能，再按该技能的边界执行；一句话涉及多个技能时，按「先读后写、先改上游再改下游」的顺序执行。',
+    '',
+    '| 技能 | 触发示例 | 允许的计划操作 |',
+    '|---|---|---|',
+    ...rows,
+    '',
+    '规则：',
+    '1. 写入类操作只能使用命中技能「允许的计划操作」；不在表内的修改先向作者说明并等待确认。',
+    '2. 任何写入都必须先产出 MutationPlan（intent + steps），确认后才执行；未确认时数据库零改动。',
+    '3. 意图无法归类或跨技能冲突时，先用自然语言向作者澄清，不要猜测。',
+  ]
+
+  if (matched) {
+    lines.push('', `本轮识别技能：${matched.name}`, `允许工具：${matched.allowedTools.join(', ')}`, `执行要点：${matched.guidance}`)
+  }
+  return lines.join('\n')
 }
 
 // ===== 内置 Skills =====

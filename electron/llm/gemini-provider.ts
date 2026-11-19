@@ -1,9 +1,51 @@
 import { ILLMProvider, LLMGenerateOptions, LLMResponse, LLMStreamOptions } from './provider.interface'
-import { ModelProfile } from '../../src/shared/ipc-channels'
+import { ModelProfile, ThinkingLevel } from '../../src/shared/ipc-channels'
+import { GEMINI_BUDGETS, mappedThinkingValue } from './thinking'
 import {
   createTimeoutController, withRequestTimeout, timeoutMessage, httpErrorMessage,
   CONNECT_TIMEOUT_MS, STREAM_IDLE_TIMEOUT_MS, REQUEST_TIMEOUT_MS,
 } from './http'
+
+/**
+ * 生成 Gemini 的 thinkingConfig：
+ * - Gemini 2.5 用 thinkingBudget（off=0，其余按档位预算）
+ * - Gemini 3 用 thinkingLevel（不支持完全关闭，最低 low）
+ */
+export function geminiThinkingConfig(
+  model: ModelProfile,
+  level?: ThinkingLevel,
+): { config?: Record<string, unknown>; error?: string; reserveTokens?: number } {
+  if (!level) return {}
+  const mapped = mappedThinkingValue(model, level)
+  if (mapped === null) return { error: `该模型不支持所选思考档位（${level}）` }
+
+  // Gemini 3 / 4 用 thinkingLevel（不支持 thinkingBudget，也不支持完全关闭，最低 low）
+  if (/gemini-(?:3|4)/i.test(model.modelName)) {
+    const value = mapped ?? (level === 'off' || level === 'low' ? 'low' : 'high')
+    // 思考 token 计入 maxOutputTokens：预留额度，避免长文请求被思考吃光预算后返回空正文
+    return { config: { thinkingLevel: value }, reserveTokens: value === 'low' ? 2048 : 8192 }
+  }
+
+  if (level === 'off') return { config: { thinkingBudget: 0 } }
+  const parsedMap = mapped !== undefined ? Number(mapped) : NaN
+  const budget = Number.isFinite(parsedMap) && parsedMap > 0 ? Math.floor(parsedMap) : GEMINI_BUDGETS[level]
+  return { config: { thinkingBudget: budget }, reserveTokens: budget }
+}
+
+/**
+ * 思考 token 与正文共用 maxOutputTokens：按思考档位预留余量，
+ * 否则长文请求（maxTokens 按字数估算）会被思考吃光，正文为空。
+ */
+function withThinkingHeadroom(baseMax: number, hardCap: number, reserve?: number): number {
+  if (!reserve || !Number.isFinite(reserve)) return baseMax
+  return Math.min(baseMax + reserve, Math.max(hardCap, baseMax))
+}
+
+/** 过滤思考块：部分中转站把 Gemini 的 thought 文本混在 content parts 里返回 */
+function joinVisibleText(parts?: Array<{ text?: string; thought?: boolean }>): string {
+  if (!parts) return ''
+  return parts.filter((p) => !p.thought).map((p) => p.text || '').join('')
+}
 
 export class GeminiProvider implements ILLMProvider {
   private toGeminiContents(messages: Array<{ role: string; content: string }>) {
@@ -28,19 +70,28 @@ export class GeminiProvider implements ILLMProvider {
 
     const { contents, systemInstruction } = this.toGeminiContents(messages)
 
-    const body: Record<string, unknown> = {
-      contents,
-      generationConfig: {
-        temperature: opts.temperature ?? model.temperature,
-        maxOutputTokens: opts.maxTokens ?? model.maxTokens,
-      },
+    const generationConfig: Record<string, unknown> = {
+      temperature: opts.temperature ?? model.temperature,
+      maxOutputTokens: opts.maxTokens ?? model.maxTokens,
     }
+    const thinking = geminiThinkingConfig(model, opts.thinking)
+    if (thinking.error) return { success: false, content: '', error: thinking.error }
+    if (thinking.config) {
+      generationConfig.thinkingConfig = thinking.config
+      generationConfig.maxOutputTokens = withThinkingHeadroom(
+        Number(generationConfig.maxOutputTokens) || 0,
+        Number(model.maxTokens) || 0,
+        thinking.reserveTokens,
+      )
+    }
+
+    const body: Record<string, unknown> = { contents, generationConfig }
     if (systemInstruction) {
       body.systemInstruction = { parts: [{ text: systemInstruction }] }
     }
 
     type GenerateContentResponse = {
-      candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>
+      candidates?: Array<{ content?: { parts?: Array<{ text?: string; thought?: boolean }> } }>
       usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number; totalTokenCount?: number }
     }
     let data: GenerateContentResponse
@@ -67,7 +118,7 @@ export class GeminiProvider implements ILLMProvider {
       return { success: false, content: '', error: error instanceof Error ? error.message : String(error) }
     }
 
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text ?? ''
+    const text = joinVisibleText(data.candidates?.[0]?.content?.parts)
     const usage = data.usageMetadata ? {
       promptTokens: data.usageMetadata.promptTokenCount ?? 0,
       completionTokens: data.usageMetadata.candidatesTokenCount ?? 0,
@@ -87,13 +138,25 @@ export class GeminiProvider implements ILLMProvider {
 
       const { contents, systemInstruction } = this.toGeminiContents(messages)
 
-      const body: Record<string, unknown> = {
-        contents,
-        generationConfig: {
-          temperature: opts.temperature ?? model.temperature,
-          maxOutputTokens: opts.maxTokens ?? model.maxTokens,
-        },
+      const generationConfig: Record<string, unknown> = {
+        temperature: opts.temperature ?? model.temperature,
+        maxOutputTokens: opts.maxTokens ?? model.maxTokens,
       }
+      const thinking = geminiThinkingConfig(model, opts.thinking)
+      if (thinking.error) {
+        opts.onError(thinking.error)
+        return
+      }
+      if (thinking.config) {
+        generationConfig.thinkingConfig = thinking.config
+        generationConfig.maxOutputTokens = withThinkingHeadroom(
+          Number(generationConfig.maxOutputTokens) || 0,
+          Number(model.maxTokens) || 0,
+          thinking.reserveTokens,
+        )
+      }
+
+      const body: Record<string, unknown> = { contents, generationConfig }
       if (systemInstruction) {
         body.systemInstruction = { parts: [{ text: systemInstruction }] }
       }
@@ -131,10 +194,10 @@ export class GeminiProvider implements ILLMProvider {
         if (!json) return
         try {
           const parsed = JSON.parse(json) as {
-            candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>
+            candidates?: Array<{ content?: { parts?: Array<{ text?: string; thought?: boolean }> } }>
             usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number; totalTokenCount?: number }
           }
-          const chunk = parsed.candidates?.[0]?.content?.parts?.[0]?.text
+          const chunk = joinVisibleText(parsed.candidates?.[0]?.content?.parts)
           if (chunk) {
             fullText += chunk
             opts.onChunk(chunk)

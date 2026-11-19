@@ -31,10 +31,10 @@ export default function StatusBar() {
     >
       {/* 左侧 */}
       <div className="flex items-center h-full">
-        <StatusBarSegment title="Vela IDE">
+        <StatusBarSegment title="墨枢 MoShu">
           <BookOpen size={11} />
-          <span className="font-medium brand-gradient">Vela</span>
-          <span className="opacity-80 brand-gradient">v{__APP_VERSION__}</span>
+          <span className="font-medium">墨枢</span>
+          <span className="opacity-60">v{__APP_VERSION__}</span>
         </StatusBarSegment>
 
         {currentProject && (
@@ -46,15 +46,6 @@ export default function StatusBar() {
             </StatusBarSegment>
           </>
         )}
-
-        <StatusBarDivider />
-        <StatusBarSegment
-          title={t('statusBar.sponsorTooltip')}
-          onClick={openSettings}
-        >
-          <span className="font-medium" style={{ color: '#ff4d4f' }}>{t('statusBar.supportAuthor')}</span>
-        </StatusBarSegment>
-
       </div>
 
       {/* 右侧：AI 胶囊 + 模型名 */}

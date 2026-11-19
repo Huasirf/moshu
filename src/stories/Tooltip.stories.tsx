@@ -1,9 +1,9 @@
-import type { Meta, StoryObj } from '@storybook/react' // eslint-disable-line storybook/no-renderer-packages
+﻿import type { Meta, StoryObj } from '@storybook/react' // eslint-disable-line storybook/no-renderer-packages
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '../components/ui/Tooltip'
 import { Button } from '../components/ui/Button'
 
 const meta = {
-  title: 'Vela UI/Tooltip',
+  title: 'MoShu UI/Tooltip',
   component: Tooltip,
   parameters: {
     docs: {

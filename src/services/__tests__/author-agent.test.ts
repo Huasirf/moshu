@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+﻿import { afterEach, describe, expect, it, vi } from 'vitest'
 import { runAgentLoop, parseToolCalls } from '../agent/agent-engine'
 import { toolRegistry } from '../agent/tool-registry'
 import { applyRevision, refreshAfterStoryRevision } from '../agent/story-revision-service'
@@ -42,7 +42,7 @@ describe('author agent execution', () => {
       if (channel === 'llm:generate') {
         expect((args[0] as { modelId: string }).modelId).toBe('model')
         if (mode === 'cancelled') controller.abort()
-        return { success: true, content: mode === 'incomplete' ? '<vela_rewrite>半截正文' : '<vela_rewrite>林舟站在码头。</vela_rewrite>' } as never
+        return { success: true, content: mode === 'incomplete' ? '<moshu_rewrite>半截正文' : '<moshu_rewrite>林舟站在码头。</moshu_rewrite>' } as never
       }
       if (channel === 'story:apply') {
         expect((args[1] as { edits: { newText: string }[] }).edits[0].newText).toBe('林舟站在码头。')
@@ -121,7 +121,7 @@ describe('author agent execution', () => {
   })
   it('refreshes the open prose tab after an applied change and after undo', () => {
     useProjectStore.setState({ currentProject: { path: 'D:/novel', novelConfig: {} } as never })
-    useEditorStore.setState({ tabs: [{ id: 'draft', filePath: 'vela://draft/1', type: 'chapter', name: '第1章', content: '我走进码头。', dirty: false }] })
+    useEditorStore.setState({ tabs: [{ id: 'draft', filePath: 'moshu://draft/1', type: 'chapter', name: '第1章', content: '我走进码头。', dirty: false }] })
     const revision = { id: 'r1', intent: '改成第三人称', summary: '保留情节', createdAt: '', status: 'applied' as const, changes: [{ kind: 'draft' as const, id: '1', title: '第1章', field: 'content', before: '我走进码头。', after: '林舟走进码头。' }] }
     refreshAfterStoryRevision('D:/novel', revision)
     expect(useEditorStore.getState().tabs[0]).toMatchObject({ content: '林舟走进码头。', dirty: false })

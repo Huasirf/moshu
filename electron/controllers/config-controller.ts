@@ -1,5 +1,5 @@
-import { ipcMain } from 'electron'
-import { readJsonFile, writeJsonFile, GLOBAL_CONFIG_PATH, DEFAULT_GLOBAL_CONFIG, VELA_HOME } from '../utils/config-utils'
+﻿import { ipcMain } from 'electron'
+import { readJsonFile, writeJsonFile, GLOBAL_CONFIG_PATH, DEFAULT_GLOBAL_CONFIG, MOSHU_HOME } from '../utils/config-utils'
 import { GlobalConfig } from '../../src/shared/ipc-channels'
 
 export function registerConfigController() {
@@ -20,8 +20,8 @@ export function registerConfigController() {
     }
   })
 
-  /** 获取 ~/.vela 路径 */
-  ipcMain.handle('config:get-vela-home', async () => {
-    return VELA_HOME
+  /** 获取 ~/.moshu 路径 */
+  ipcMain.handle('config:get-moshu-home', async () => {
+    return MOSHU_HOME
   })
 }

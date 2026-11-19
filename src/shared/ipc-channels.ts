@@ -1,7 +1,11 @@
-/**
- * Vela IPC 频道定义 — 渲染进程与主进程的类型安全通信契约
+﻿/**
+ * 墨枢 IPC 频道定义 — 渲染进程与主进程的类型安全通信契约
  * 所有 IPC 调用都通过此文件定义频道名和参数/返回值类型
  */
+import type {
+  RuleItem, RuleSnapshotMeta, RuleSnapshotFull,
+  TimelineEvent, TimelineConfig, TimelineIssue,
+} from './rule-timeline'
 
 // ===== 全局配置 =====
 export interface ConfigChannels {
@@ -13,7 +17,7 @@ export interface ConfigChannels {
     args: [config: Partial<GlobalConfig>]
     return: { success: boolean; error?: string }
   }
-  'config:get-vela-home': {
+  'config:get-moshu-home': {
     args: []
     return: string
   }
@@ -56,6 +60,34 @@ export interface ProjectChannels {
   'project:recent-list': {
     args: []
     return: Array<{ name: string; path: string; updatedAt: string }>
+  }
+  'project:remove-recent': {
+    args: [projectPath: string]
+    return: { success: boolean; error?: string }
+  }
+  'project:reveal': {
+    args: [projectPath: string]
+    return: { success: boolean; error?: string }
+  }
+  'project:delete': {
+    args: [projectPath: string]
+    return: { success: boolean; error?: string; missing?: boolean }
+  }
+  'project:registry-list': {
+    args: []
+    return: ProjectRegistryEntry[]
+  }
+  'project:registry-pin': {
+    args: [projectPath: string, pinned: boolean]
+    return: { success: boolean }
+  }
+  'project:registry-forget': {
+    args: [projectPath: string]
+    return: { success: boolean }
+  }
+  'project:registry-refresh': {
+    args: [projectPath: string]
+    return: { success: boolean }
   }
   'dialog:select-folder': {
     args: []
@@ -115,6 +147,21 @@ export interface LLMChannels {
     return: ModelProfile[]
   }
   'llm:ollama-models': { args: [baseUrl: string, apiKey?: string]; return: { success: boolean; models: string[]; error?: string } }
+  /** 从绑定的上游地址拉取模型列表；apiKey 传打码值时用 id 找到已保存的 Key */
+  'llm:discover-models': {
+    args: [input: {
+      id?: string
+      protocol: ModelProfile['protocol']
+      provider?: ModelProfile['provider']
+      baseUrl: string
+      apiKey?: string
+    }]
+    return: {
+      success: boolean
+      models: Array<{ id: string; name?: string; ownedBy?: string }>
+      error?: string
+    }
+  }
   /** apiKey 传打码值表示沿用已保存的 Key（接口地址改了则失败，需重新填写），传空串表示清除 */
   'llm:save-model': {
     args: [model: ModelProfile]
@@ -212,12 +259,18 @@ export interface NovelConfig {
   narrativePOV: 'third_limited' | 'first_person' | 'third_omniscient' | 'multi_pov'
   coreOutline: string
   worldSetting: string
+  /** 规则区·判定细则：属性成长、精神力恢复、伤势治疗、试炼结算等硬规则 */
+  rulebook?: string
   goldenFinger: string
   protagonistProfile: string
   globalGuidance: string
   writingStyle?: string
   styleReference?: string
   referenceWorks?: string
+  /** 项目禁用词表：写稿/去味 prompt 会注入，生成后扫描并给出 warning（style-scan） */
+  bannedTerms?: string[]
+  /** 禁用词替换表：key=禁用词，value=替换词；生成后做确定性替换，不额外调用 LLM */
+  replacements?: Record<string, string>
   /** 全局美术风格：统一注入到人设图与章节配图的文生图提示词末尾，保证全书画风一致 */
   artStyle?: string
   /** 全局反向提示词：统一作为 negative_prompt 发送，排除写实、人形等不希望出现的元素 */
@@ -231,6 +284,22 @@ export interface FileNode {
   children?: FileNode[]
 }
 
+/** 项目登记表条目（~/.moshu/projects.json），供主页工作台展示 */
+export interface ProjectRegistryEntry {
+  id: string
+  name: string
+  path: string
+  genre: string
+  totalChapters: number
+  draftedCount: number
+  wordCount: number
+  lastOpenedAt: string
+  createdAt: string
+  pinned: boolean
+  coverColor: string
+  missing?: boolean
+}
+
 export interface LLMRequest {
   modelId: string
   messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>
@@ -238,7 +307,8 @@ export interface LLMRequest {
   maxTokens?: number
   stream?: boolean
   responseFormat?: { type: 'json_object' | 'text' }
-  thinking?: boolean
+  /** true = 使用模型配置的档位（未配置则 high），false = 关闭，字符串 = 指定档位 */
+  thinking?: boolean | ThinkingLevel
 }
 
 export interface LLMResponse {
@@ -254,6 +324,27 @@ export interface TokenUsage {
   totalTokens: number
 }
 
+/** 平台统一的思考档位（各协议自行映射到上游参数） */
+export type ThinkingLevel = 'off' | 'low' | 'medium' | 'high'
+
+/**
+ * 模型思考能力声明。整块省略表示「默认不发送任何思考参数」。
+ * 参考 CC Switch 的档位映射语义：
+ * - map 里字符串 = 该档位发往上游的实际值
+ * - map 里 null = 该档位明确不支持（调用时报错，而不是静默降级）
+ * - map 缺键 = 使用协议内置默认映射
+ */
+export interface ThinkingProfile {
+  /** false 表示上游不支持思考，界面不提供档位选择 */
+  supports?: boolean
+  /** false 表示上游只有开/关，没有档位（DeepSeek、GLM 等） */
+  supportsLevels?: boolean
+  /** 该模型的默认思考档位；省略时由调用方决定 */
+  defaultLevel?: ThinkingLevel
+  /** 档位 → 上游实际值（主要给 OpenAI 兼容中转站覆盖 reasoning_effort 词表） */
+  map?: Partial<Record<ThinkingLevel, string | null>>
+}
+
 export interface ModelProfile {
   id: string
   name: string
@@ -266,6 +357,8 @@ export interface ModelProfile {
   temperature: number
   maxTokens: number
   purposes: Array<'generation' | 'refinement' | 'summary' | 'embedding' | 'image'>
+  /** 思考能力声明；省略时完全不发送思考参数（旧配置零迁移） */
+  thinking?: ThinkingProfile
 }
 
 // ===== 引入 DB 类型 =====
@@ -280,6 +373,33 @@ import type { ReviewMeta, ReviewFull } from '../../electron/repositories/review-
 import type { RehearsalContext } from './story-rehearsal'
 import type { PostProcessRunData, PostProcessStepData } from '../../electron/repositories/post-process-repository'
 import type { ForeshadowingData } from '../../electron/repositories/foreshadowing-repository'
+import type { AssetData, AssetEntityType, AssetInput } from '../../electron/repositories/asset-repository'
+import type {
+  AttributeDef,
+  AttributePanelEntry,
+  AttributePhase,
+  AttributeValue,
+  AttributeValueInput,
+} from '../../electron/repositories/attribute-repository'
+import type { EntityRelation, EntityRelationInput } from '../../electron/repositories/relation-repository'
+import type { ChapterPipelineState } from '../../electron/repositories/pipeline-repository'
+import type {
+  FinalizeWritebackInput,
+  FinalizeWritebackResult,
+} from '../../electron/services/finalize-writeback'
+import type { StyleProfile, StyleProfileInput } from '../../electron/repositories/style-repository'
+import type {
+  ReviewFinding,
+  ReviewFindingInput,
+  ReviewFindingStatus,
+} from '../../electron/repositories/review-finding-repository'
+import type { ChapterStage } from './chapter-stage'
+import type {
+  MutationPlan,
+  MutationPlanExecution,
+  MutationPlanExecutionOptions,
+  MutationPlanPreview,
+} from './mutation-plan'
 
 // ===== 数据库操作 =====
 export interface DatabaseChannels {
@@ -293,13 +413,39 @@ export interface DatabaseChannels {
   'db:rehearsal-context': { args: [projectPath: string, chapterNumber: number]; return: RehearsalContext }
   'db:close': { args: []; return: { success: boolean } }
 
-  // 0. 备份（文件在 {项目}/.vela/backups/，自动备份见 electron/db-auto-backup.ts）
+  // 0. 备份（文件在 {项目}/.moshu/backups/，自动备份见 electron/db-auto-backup.ts）
   'db:backup-now': { args: []; return: { success: boolean; file?: string; error?: string } }
   'db:backup-open-dir': { args: []; return: { success: boolean; error?: string } }
 
   // 1. project_core
   'db:project-core-get': { args: []; return: ProjectCoreData | null }
   'db:project-core-update': { args: [data: Partial<ProjectCoreData>]; return: { success: boolean; error?: string } }
+
+  // 1.1 rule_items — 结构化规则库
+  'db:rule-items-list': { args: []; return: RuleItem[] }
+  'db:rule-items-save': {
+    args: [items: Array<Partial<RuleItem> & { group: string; title: string; body: string }>]
+    return: { success: boolean; items?: RuleItem[]; compiled?: string; error?: string }
+  }
+  'db:rule-items-seed': {
+    args: [rulebook?: string]
+    return: { success: boolean; items?: RuleItem[]; compiled?: string; error?: string }
+  }
+  'db:rule-snapshot-list': { args: [limit?: number]; return: RuleSnapshotMeta[] }
+  'db:rule-snapshot-get': { args: [id: number]; return: RuleSnapshotFull | null }
+  'db:rule-snapshot-restore': { args: [id: number]; return: { success: boolean; items?: RuleItem[]; compiled?: string; error?: string } }
+
+  // 1.2 章纲时间线
+  'db:timeline-events-get': { args: [chapterNumber: number]; return: TimelineEvent[] }
+  'db:timeline-events-all': { args: [limit?: number]; return: TimelineEvent[] }
+  'db:timeline-events-save': {
+    args: [chapterNumber: number, events: Array<Partial<TimelineEvent> & { summary: string }>]
+    return: { success: boolean; events?: TimelineEvent[]; error?: string }
+  }
+  'db:timeline-config-get': { args: []; return: TimelineConfig }
+  'db:timeline-config-save': { args: [config: Partial<TimelineConfig>]; return: TimelineConfig }
+  'db:timeline-validate': { args: []; return: TimelineIssue[] }
+  'db:timeline-context': { args: [chapterNumber: number]; return: string }
 
   // 2. blueprints
   'db:blueprint-get-all': { args: [projectPath?: string]; return: BlueprintData[] }
@@ -308,6 +454,8 @@ export interface DatabaseChannels {
   'db:blueprint-commit': { args: [items: BlueprintData[], deleted: number[], expected: BlueprintData[], projectPath: string]; return: { success: boolean; error?: string } }
   'db:blueprint-upsert-many': { args: [items: BlueprintData[], projectPath?: string]; return: { success: boolean; error?: string } }
   'db:blueprint-update-notes': { args: [chapterNumber: number, notes: string]; return: { success: boolean; error?: string } }
+  /** 把下游章节蓝图标记为 'stale'（上游大纲改动后待刷新，只改 status） */
+  'db:blueprint-mark-stale': { args: [chapterNumbers: number[]]; return: { success: boolean; updated?: number; error?: string } }
 
   // 3. characters
   'db:character-get-all': { args: []; return: CharacterData[] }
@@ -318,6 +466,10 @@ export interface DatabaseChannels {
   'db:character-update-state': { args: [name: string, state: CharacterStateData]; return: { success: boolean; error?: string } }
   'db:character-update-speech': { args: [name: string, speechStyle: string]; return: { success: boolean; error?: string } }
   'db:character-update-portrait': { args: [name: string, portraitPath: string]; return: { success: boolean; error?: string } }
+  /** 角色卡 2.0：字段级状态变更流水（最近的在前） */
+  'db:character-history-list': { args: [name: string, limit?: number]; return: Array<{ id: number; characterName: string; chapterNumber: number; field: string; before: unknown; after: unknown; source: string; createdAt: string }> | { success: false; error: string } }
+  /** 角色卡 2.0：某章末全体角色动态状态快照 */
+  'db:character-snapshot-map': { args: [chapterNumber: number]; return: Record<string, CharacterStateData> }
   'db:chapter-image-list': { args: [chapterNumber: number]; return: ChapterImageData[] }
   'db:chapter-image-add': { args: [payload: { chapterNumber: number; kind: 'header' | 'scene'; path: string; prompt: string }]; return: { success: boolean; id?: number; error?: string } }
   'db:chapter-image-delete': { args: [id: number]; return: { success: boolean; error?: string } }
@@ -333,6 +485,23 @@ export interface DatabaseChannels {
   'db:draft-get-max-finalized-chapter': { args: []; return: number }
   'db:draft-next-version': { args: [chapterNumber: number]; return: number }
   'db:draft-update-status': { args: [id: number, status: string, wordCount?: number]; return: { success: boolean; error?: string } }
+  /** 设为该章唯一正式定稿：同章其他 finalized 自动降级为 archived */
+  'db:draft-finalize': { args: [chapterNumber: number, id: number, wordCount: number]; return: { success: boolean; error?: string } }
+  /** 取消定稿：仅允许当前最新定稿章；先自动备份，再清理本章全部派生数据 */
+  'db:chapter-unfinalize': {
+    args: [chapterNumber: number]
+    return: {
+      success: boolean
+      error?: string
+      result?: {
+        chapterNumber: number
+        backupFile: string
+        removedFiles: string[]
+        removedKbDocs: string[]
+        warnings: string[]
+      }
+    }
+  }
   'db:draft-update-content': { args: [id: number, content: string, wordCount: number]; return: { success: boolean; error?: string } }
   /** 全局搜索：每章搜一份代表稿（定稿优先，否则最新未归档草稿），query 按字面量匹配 */
   'db:search-chapters': { args: [query: string, options?: ChapterSearchOptions]; return: ChapterSearchResult }
@@ -381,6 +550,9 @@ export interface DatabaseChannels {
   'db:canon-timeline-get-chapter': { args: [chapterNumber: number]; return: CanonTimelineEvent[] }
   'db:canon-timeline-append': { args: [event: CanonTimelineEventInput]; return: { success: boolean; id?: number; error?: string } }
   'db:canon-timeline-clear-chapter': { args: [chapterNumber: number]; return: { success: boolean } }
+  'db:canon-timeline-clear-extracted': { args: [chapterNumber: number]; return: { success: boolean } }
+  'db:canon-timeline-set-status': { args: [id: number, status: 'confirmed' | 'pending' | 'rejected']; return: { success: boolean } }
+  'db:canon-timeline-pending': { args: []; return: CanonTimelineEvent[] }
   'db:canon-character-state-get-all': { args: []; return: CanonCharacterStateSnapshot[] }
   'db:canon-character-state-get': { args: [character: string]; return: CanonCharacterStateSnapshot | null }
   'db:canon-character-state-upsert': { args: [snapshot: CanonCharacterStateSnapshot]; return: { success: boolean; error?: string } }
@@ -404,6 +576,104 @@ export interface DatabaseChannels {
   'db:canon-writeback-atomic': {
     args: [payload: CanonWritebackPayload]
     return: { success: boolean; error?: string; timelineIds?: number[]; characterStatesWritten?: number; plotIds?: number[]; factIds?: number[] }
+  }
+
+  // ===== P1 数据层：资产库 =====
+  'db:asset-list': { args: [entityType?: AssetEntityType]; return: AssetData[] }
+  'db:asset-get': { args: [id: number]; return: AssetData | null }
+  'db:asset-upsert': { args: [data: AssetInput]; return: { success: boolean; id?: number; error?: string } }
+  'db:asset-delete': { args: [id: number]; return: { success: boolean; error?: string } }
+
+  // ===== P1 数据层：属性系统（现状面板底座） =====
+  'db:attribute-def-list': { args: [entityType?: string]; return: AttributeDef[] }
+  'db:attribute-def-upsert': { args: [def: AttributeDef]; return: { success: boolean; error?: string } }
+  'db:attribute-def-delete': { args: [key: string]; return: { success: boolean; error?: string } }
+  'db:attribute-value-get': {
+    args: [entityId: string, attrKey: string, chapterNumber: number, phase?: AttributePhase]
+    return: AttributeValue | null
+  }
+  'db:attribute-value-list': { args: [entityId: string, attrKey?: string]; return: AttributeValue[] }
+  'db:attribute-value-set': {
+    args: [value: AttributeValueInput]
+    return: { success: boolean; value?: AttributeValue; error?: string }
+  }
+  'db:attribute-panel-state': {
+    args: [entityId: string, chapterNumber: number, phase?: AttributePhase, entityType?: string]
+    return: AttributePanelEntry[]
+  }
+
+  // ===== P1 数据层：关系网 =====
+  'db:relation-list': { args: [fromId?: string]; return: EntityRelation[] }
+  'db:relation-upsert': {
+    args: [data: EntityRelationInput]
+    return: { success: boolean; relation?: EntityRelation; error?: string }
+  }
+  'db:relation-delete': {
+    args: [fromId: string, toId: string, relationType: string]
+    return: { success: boolean; error?: string }
+  }
+
+  // ===== P1 数据层：章节流水线 =====
+  'db:pipeline-get': { args: [chapterNumber: number]; return: ChapterPipelineState | null }
+  'db:pipeline-list': { args: []; return: ChapterPipelineState[] }
+  'db:pipeline-set-stage': {
+    args: [chapterNumber: number, stage: ChapterStage]
+    return: { success: boolean; state?: ChapterPipelineState; error?: string }
+  }
+  /** 回退一步（DR-03）：expectedStage 为确认弹窗展示的旧阶段，用于乐观校验 */
+  'db:pipeline-rewind': {
+    args: [chapterNumber: number, expectedStage: ChapterStage]
+    return: { success: boolean; state?: ChapterPipelineState; error?: string }
+  }
+
+  // ===== P1 数据层：风格档案 =====
+  'db:style-list': { args: []; return: StyleProfile[] }
+  'db:style-get-active': { args: []; return: StyleProfile | null }
+  'db:style-create': { args: [data: StyleProfileInput]; return: { success: boolean; id?: number; error?: string } }
+  'db:style-update': { args: [id: number, data: StyleProfileInput]; return: { success: boolean; error?: string } }
+  'db:style-set-active': { args: [id: number]; return: { success: boolean; error?: string } }
+  'db:style-delete': { args: [id: number]; return: { success: boolean; error?: string } }
+
+  // ===== P1 数据层：审稿台账 =====
+  'db:review-finding-add': {
+    args: [data: ReviewFindingInput]
+    return: { success: boolean; id?: number; error?: string }
+  }
+  'db:review-finding-add-many': {
+    args: [items: ReviewFindingInput[]]
+    return: { success: boolean; ids?: number[]; error?: string }
+  }
+  'db:review-finding-list': {
+    args: [chapterNumber: number, status?: ReviewFindingStatus]
+    return: ReviewFinding[]
+  }
+  'db:review-finding-update-status': {
+    args: [id: number, status: ReviewFindingStatus]
+    return: { success: boolean; error?: string }
+  }
+  'db:review-finding-delete': { args: [id: number]; return: { success: boolean; error?: string } }
+  /** 重跑某一审稿阶段前清空该阶段的 findings（按 chapter + stage） */
+  'db:review-finding-clear-stage': {
+    args: [chapterNumber: number, stage: string]
+    return: { success: boolean; error?: string }
+  }
+  'db:review-finding-count-open-errors': { args: [chapterNumber: number]; return: number }
+
+  // ===== P3 章节流水线：定稿写回（单事务） =====
+  'db:finalize-writeback': {
+    args: [input: FinalizeWritebackInput]
+    return: FinalizeWritebackResult
+  }
+
+  // ===== P2 中控 AI：改动计划执行（单事务，失败整体回滚） =====
+  'db:mutation-plan-execute': {
+    args: [plan: MutationPlan, options?: MutationPlanExecutionOptions]
+    return: MutationPlanExecution
+  }
+  /** 只读预览：返回每步执行前快照与字段级 diff（确认卡片使用） */
+  'db:mutation-plan-preview': {
+    args: [plan: MutationPlan]
+    return: MutationPlanPreview
   }
 }
 
@@ -467,6 +737,12 @@ export interface CanonTimelineEvent {
   timeFlow: 'sequential' | 'flashback'
   summary: string
   impact: string
+  absoluteTime?: string
+  duration?: string
+  source?: 'canon' | 'finalize_extract' | 'manual'
+  confidence?: number
+  evidence?: string
+  status?: 'confirmed' | 'pending' | 'rejected'
   createdAt?: string
 }
 export interface CanonTimelineEventInput {
@@ -477,6 +753,12 @@ export interface CanonTimelineEventInput {
   timeFlow: 'sequential' | 'flashback'
   summary: string
   impact: string
+  absoluteTime?: string
+  duration?: string
+  source?: 'canon' | 'finalize_extract' | 'manual'
+  confidence?: number
+  evidence?: string
+  status?: 'confirmed' | 'pending' | 'rejected'
 }
 export interface CanonCharacterStateSnapshot {
   character: string
@@ -554,7 +836,7 @@ export interface KnowledgeBaseChannels {
   /** preview：首块第一行非空文本（标题预览），没有则为空串 */
   'kb:list-documents': { args: []; return: Array<{ id: string; fileName: string; importedAt: string; chunkCount: number; filePath: string; preview?: string }> }
   'kb:remove-document': { args: [docId: string]; return: { success: boolean } }
-  'kb:stats': { args: []; return: { documentCount: number; totalChunks: number; vectorDimension: number } }
+  'kb:stats': { args: []; return: { documentCount: number; totalChunks: number; vectorDimension: number; lastUpdatedAt?: string | null } }
   'dialog:select-files': { args: []; return: string[] | null }
   'dialog:select-import-folder': { args: []; return: string | null }
   'kb:get-vectorless-count': { args: []; return: { count: number } }

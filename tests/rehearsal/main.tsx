@@ -1,4 +1,4 @@
-// This entry is only served by the test config, never imported by the application.
+﻿// This entry is only served by the test config, never imported by the application.
 import React from 'react'
 import { createRoot } from 'react-dom/client'
 import '../../src/index.css'
@@ -14,7 +14,7 @@ const base = {
   characters: ['林舟', '师父'], suspenseHook: '信交给了谁', userGuidance: '原有指导：保留雨夜。', notes: '原有要点不变', notesUpdatedAt: '',
 }
 const project = (name: string) => ({
-  id: name, name, path: `D:/vela-ui-fixture/${name}`,
+  id: name, name, path: `D:/moshu-ui-fixture/${name}`,
   novelConfig: { genre: '悬疑', subGenre: '', targetAudience: '', totalChapters: 30, wordsPerChapter: 3000,
     plotStructure: 'three_act' as const, narrativePOV: 'third_limited' as const, coreOutline: '', worldSetting: '',
     goldenFinger: '', protagonistProfile: '', globalGuidance: '' },
@@ -39,7 +39,7 @@ const qa = {
   noModels: () => useLLMStore.setState({ models: [], defaultModelId: null }),
 }
 const emit = (channel: string, value: unknown) => listeners.get(channel)?.forEach(fn => fn(value))
-Object.assign(window, { rehearsalTest: qa, velaAPI: {
+Object.assign(window, { rehearsalTest: qa, moshuAPI: {
   on: (channel: string, fn: (value: unknown) => void) => {
     if (!listeners.has(channel)) listeners.set(channel, new Set())
     listeners.get(channel)!.add(fn)

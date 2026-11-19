@@ -1,9 +1,19 @@
 import { ILLMProvider, LLMGenerateOptions, LLMResponse, LLMStreamOptions } from './provider.interface'
-import { ModelProfile } from '../../src/shared/ipc-channels'
+import { ModelProfile, ThinkingLevel } from '../../src/shared/ipc-channels'
+import { mappedThinkingValue, thinkingOutputTokens, usesThinkingObject } from './thinking'
 import {
   createTimeoutController, withRequestTimeout, timeoutMessage, httpErrorMessage,
   CONNECT_TIMEOUT_MS, STREAM_IDLE_TIMEOUT_MS, REQUEST_TIMEOUT_MS,
 } from './http'
+
+export const TRUNCATED_MESSAGE = '模型输出达到长度上限，结果不完整，未提交本轮操作。请分段改写或增加模型输出上限。'
+
+/** 截断提示：开启思考时补充一条可操作建议，避免用户误以为只能改模型配置 */
+export function truncatedMessage(thinkingOn: boolean): string {
+  return thinkingOn
+    ? `${TRUNCATED_MESSAGE}若已开启思考强度，思维链会占用输出上限，可调低思考强度或调高最大 Token。`
+    : TRUNCATED_MESSAGE
+}
 
 export class OpenAIProvider implements ILLMProvider {
   private supportsResponseFormat(model: ModelProfile): boolean {
@@ -12,14 +22,26 @@ export class OpenAIProvider implements ILLMProvider {
     if (model.provider !== 'ollama') return true
     return !/[:-]cloud$/i.test(model.modelName) && !/^https?:\/\/(?:api\.)?ollama\.com(?:\/|$)/i.test(model.baseUrl)
   }
-  private applyThinkingOption(body: Record<string, unknown>, model: ModelProfile, thinking?: boolean) {
-    if (thinking === undefined) return
+  /**
+   * 把档位写进请求体。返回非空字符串表示该模型明确不支持所选档位，应直接报错而不是静默降级。
+   */
+  private applyThinkingOption(body: Record<string, unknown>, model: ModelProfile, level?: ThinkingLevel): string | null {
+    if (!level) return null
+    const mapped = mappedThinkingValue(model, level)
+    if (mapped === null) return `该模型不支持所选思考档位（${level}）`
+
     if (model.provider === 'ollama') {
-      // Ollama's OpenAI-compatible endpoint uses reasoning_effort, not its native think field.
-      body.reasoning_effort = thinking ? 'high' : 'none'
-    } else if (model.provider === 'deepseek' || thinking) {
-      body.thinking = { type: thinking ? 'enabled' : 'disabled' }
+      // Ollama 的 OpenAI 兼容端点用 reasoning_effort，而不是原生 think 字段
+      body.reasoning_effort = mapped ?? (level === 'off' ? 'none' : level)
+    } else if (usesThinkingObject(model.provider)) {
+      body.thinking = { type: level === 'off' ? 'disabled' : 'enabled' }
+    } else if (mapped !== undefined) {
+      body.reasoning_effort = mapped
+    } else if (level !== 'off') {
+      body.reasoning_effort = level
     }
+    // 通用 OpenAI 兼容没有统一的「关闭思考」字段，off 时请求体里不出现思考参数
+    return null
   }
 
   private buildUrl(baseUrl: string): string {
@@ -46,18 +68,17 @@ export class OpenAIProvider implements ILLMProvider {
     const body: Record<string, unknown> = {
       model: model.modelName,
       messages,
-      max_tokens: opts.maxTokens ?? model.maxTokens,
+      // 思考开启时思维链也计入 max_tokens，按档位额外预留，避免正文被挤到截断
+      max_tokens: thinkingOutputTokens(opts.maxTokens ?? model.maxTokens, model, opts.thinking),
       stream: false,
     }
 
+    // thinking 参数直接放在请求体顶层（非 extra_body，那是 OpenAI SDK 层概念）
+    const thinkingError = this.applyThinkingOption(body, model, opts.thinking)
+    if (thinkingError) return { success: false, content: '', error: thinkingError }
     // 思考模式下 temperature/top_p 等参数不生效（DeepSeek 会静默忽略），仅在非思考模式下传递
-    if (opts.thinking) {
-      // thinking 参数直接放在请求体顶层（非 extra_body，那是 OpenAI SDK 层概念）
-      this.applyThinkingOption(body, model, true)
-    } else {
-      this.applyThinkingOption(body, model, opts.thinking)
-      if (!opts.responseFormat) body.temperature = opts.temperature ?? model.temperature
-    }
+    const thinkingOn = opts.thinking !== undefined && opts.thinking !== 'off'
+    if (!thinkingOn && !opts.responseFormat) body.temperature = opts.temperature ?? model.temperature
 
     if (opts.responseFormat && this.supportsResponseFormat(model)) body.response_format = opts.responseFormat
 
@@ -67,8 +88,7 @@ export class OpenAIProvider implements ILLMProvider {
     }
     let data: ChatCompletion
     try {
-      // 超时覆盖整个请求（含读完响应体），服务端挂住时不会让 invoke 永远不返回
-      const result = await withRequestTimeout(REQUEST_TIMEOUT_MS, async (signal) => {
+      const run = () => withRequestTimeout(REQUEST_TIMEOUT_MS, async (signal) => {
         const res = await fetch(url, {
           method: 'POST',
           headers: {
@@ -83,13 +103,21 @@ export class OpenAIProvider implements ILLMProvider {
         }
         return { ok: true as const, data: await res.json() as ChatCompletion }
       })
+      let result = await run()
+      // 部分中转网关不认识 thinking / reasoning_effort：去掉思考参数重试一次，避免整条生成失败
+      if (!result.ok && (body.thinking || body.reasoning_effort) && /thinking|reasoning/i.test(result.error)) {
+        delete body.thinking
+        delete body.reasoning_effort
+        if (!opts.responseFormat) body.temperature = opts.temperature ?? model.temperature
+        result = await run()
+      }
       if (!result.ok) return { success: false, content: '', error: result.error }
       data = result.data
     } catch (error) {
       return { success: false, content: '', error: error instanceof Error ? error.message : String(error) }
     }
 
-    if (data.choices?.[0]?.finish_reason === 'length') return { success: false, content: '', error: '模型输出达到长度上限，结果不完整，未提交本轮操作。请分段改写或增加模型输出上限。' }
+    if (data.choices?.[0]?.finish_reason === 'length') return { success: false, content: '', error: truncatedMessage(thinkingOn) }
     let finalContent = data.choices?.[0]?.message?.content ?? ''
     // Some Ollama/cloud adapters omit the opening thinking delimiter.
     finalContent = finalContent.replace(/^[\s\S]*<\/think>/i, '')
@@ -117,17 +145,22 @@ export class OpenAIProvider implements ILLMProvider {
       const body: Record<string, unknown> = {
         model: model.modelName,
         messages,
-        max_tokens: opts.maxTokens ?? model.maxTokens,
+        // 思考开启时思维链也计入 max_tokens，按档位额外预留，避免正文被挤到截断
+        max_tokens: thinkingOutputTokens(opts.maxTokens ?? model.maxTokens, model, opts.thinking),
         stream: true,
         // 流式默认不返回 token 用量，须显式索取；服务商若不支持会忽略该字段，
         // 此时 usage 保持 undefined，由调用方按 0 记账。
         stream_options: { include_usage: true },
       }
 
-      // 思考模式下 temperature/top_p 等参数不生效（DeepSeek 会静默忽略），仅在非思考模式下传递
-      this.applyThinkingOption(body, model, opts.thinking)
+      const thinkingError = this.applyThinkingOption(body, model, opts.thinking)
+      if (thinkingError) {
+        opts.onError(thinkingError)
+        return
+      }
       // Some JSON gateways reject custom temperature; thinking mode also owns its sampling settings.
-      if (!opts.thinking && !opts.responseFormat) {
+      const thinkingOn = opts.thinking !== undefined && opts.thinking !== 'off'
+      if (!thinkingOn && !opts.responseFormat) {
         body.temperature = opts.temperature ?? model.temperature
       }
 
@@ -150,6 +183,17 @@ export class OpenAIProvider implements ILLMProvider {
       if (res.status === 400 && body.stream_options) {
         delete body.stream_options
         res = await send()
+      }
+      // 部分中转网关不认识 thinking / reasoning_effort：去掉思考参数重试一次
+      if (res.status === 400 && (body.thinking || body.reasoning_effort)) {
+        const text = await res.clone().text()
+        if (/thinking|reasoning/i.test(text)) {
+          delete body.thinking
+          delete body.reasoning_effort
+          if (!opts.responseFormat) body.temperature = opts.temperature ?? model.temperature
+          tc.reset(CONNECT_TIMEOUT_MS)
+          res = await send()
+        }
       }
 
       if (!res.ok) {
@@ -262,7 +306,7 @@ export class OpenAIProvider implements ILLMProvider {
       }
 
       if (truncated) {
-        opts.onError('模型输出达到长度上限，结果不完整，未提交本轮操作。请分段改写或增加模型输出上限。')
+        opts.onError(truncatedMessage(thinkingOn))
         return
       }
       opts.onDone(fullText.replace(/^[\s\S]*<\/think>/i, '').replace(/<think>[\s\S]*?(?:<\/think>|$)/gi, '').trim(), usage)

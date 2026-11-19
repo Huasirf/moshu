@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+﻿import { useState, useEffect, useCallback } from 'react'
 import { History, RotateCcw, ArrowLeftRight, RefreshCw } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useEditorStore } from '../../stores/editor-store'
@@ -20,8 +20,13 @@ interface ChapterMeta {
   status: string
 }
 
+interface VersionHistoryProps {
+  /** 从草稿编辑器进入时定位到当前章，省去在左侧列表里翻找 */
+  initialChapterNumber?: number
+}
+
 /** 版本历史面板 — 查看章节版本并与当前内容对比 */
-export default function VersionHistory() {
+export default function VersionHistory({ initialChapterNumber }: VersionHistoryProps = {}) {
   const { t } = useTranslation('editors')
   const currentProject = useProjectStore(s => s.currentProject)
   const [chapters, setChapters] = useState<ChapterMeta[]>([])
@@ -67,6 +72,13 @@ export default function VersionHistory() {
     return () => { mounted = false }
   }, [selectedChapter])
 
+  // 从草稿编辑器进入时自动定位到当前章（仅首次，不覆盖用户手动选择）
+  useEffect(() => {
+    if (!initialChapterNumber || selectedChapter) return
+    const match = chapters.find((c) => c.chapter_number === initialChapterNumber)
+    if (match) setSelectedChapter(match.id)
+  }, [chapters, initialChapterNumber, selectedChapter])
+
   /** 查看版本内容（Diff 对比） */
   const handleDiff = async (versionId: number, versionLabel: string) => {
     if (!currentProject || !selectedChapter) return
@@ -90,7 +102,7 @@ export default function VersionHistory() {
       type: 'diff',
       originalContent: oldContent,
       content: currentContent,
-      filePath: `vela://draft/ch${chapter.chapter_number}`, // 不再指向实体文件
+      filePath: `moshu://draft/ch${chapter.chapter_number}`, // 不再指向实体文件
       // 没有关联修稿：合并结果会另存为该章的新草稿版本（见 EditorArea 合并回调）
       chapterNumber: chapter.chapter_number,
     })

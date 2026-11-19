@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+﻿import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -25,7 +25,7 @@ function addChapter(chapterNumber: number, content: string, status = 'finalized'
 }
 
 beforeEach(() => {
-  folder = fs.mkdtempSync(path.join(os.tmpdir(), 'vela-rehearsal-test-'))
+  folder = fs.mkdtempSync(path.join(os.tmpdir(), 'moshu-rehearsal-test-'))
   projectA = path.join(folder, 'A')
   projectB = path.join(folder, 'B')
   initProjectDatabase(projectA)
@@ -36,7 +36,7 @@ afterEach(() => {
   closeProjectDatabase()
   const resolved = path.resolve(folder)
   const parent = path.resolve(os.tmpdir())
-  if (path.dirname(resolved) !== parent || !path.basename(resolved).startsWith('vela-rehearsal-test-')) throw new Error('Unsafe cleanup path')
+  if (path.dirname(resolved) !== parent || !path.basename(resolved).startsWith('moshu-rehearsal-test-')) throw new Error('Unsafe cleanup path')
   fs.rmSync(resolved, { recursive: true })
   handlers.clear()
 })
@@ -107,7 +107,9 @@ describe('rehearsal context and blueprint persistence', () => {
     expect(await handlers.get('db:blueprint-upsert')!({}, adopted, projectA)).toEqual({ success: true })
     closeProjectDatabase()
     initProjectDatabase(projectA)
-    expect(BlueprintRepository.getByChapter(5)).toEqual(adopted)
+    expect(BlueprintRepository.getByChapter(5)).toEqual({
+      ...adopted, assetRefs: [], scenes: [], wordsTarget: 0, status: 'planned', beatTags: [],
+    })
     expect(DraftRepository.getFull(prose)?.content).toBe('正文保持原样')
   })
 

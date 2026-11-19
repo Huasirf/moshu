@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect, useMemo } from 'react'
+﻿import { useState, useCallback, useRef, useEffect, useMemo } from 'react'
 import { Save, RefreshCw, Sparkles, Loader2, AlertTriangle, FileText } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { renderIcon } from '../panels/sidebar/SidebarShared'
@@ -8,7 +8,7 @@ import ArchitectureConfirmDialog from '../dialogs/ArchitectureConfirmDialog'
 import { Button } from '../ui/Button'
 import { toast } from '../ui/Toast'
 import { ipc } from '../../services/ipc-client'
-import { readCoreContent } from '../../services/vela-protocol'
+import { readCoreContent } from '../../services/moshu-protocol'
 import { persistEditorContent } from '../../services/editor-persistence'
 import { registerEditorFlusher } from '../../services/editor-autosave'
 import CodeMirrorEditor from './CodeMirrorEditor'
@@ -112,13 +112,13 @@ export default function ArchFileViewer({ filePath, content: initialContent }: Pr
   }, [filePath])
 
   /**
-   * 保存（统一走 vela://core/ DB 路径，见 persistEditorContent）。
+   * 保存（统一走 moshu://core/ DB 路径，见 persistEditorContent）。
    * silent=true（自动保存 / 关窗刷盘）时不弹提示，失败直接抛出，由调用方统一处理。
    */
   const handleSave = useCallback(async (md: string, silent = false) => {
     setSaving(true)
     try {
-      if (!filePath.startsWith('vela://core/')) {
+      if (!filePath.startsWith('moshu://core/')) {
         // DB 化后架构文件不应有物理路径；如果意外触发，按物理路径兜底写入
         console.warn('[ArchFileViewer] 非预期的物理路径保存:', filePath)
       }
@@ -151,7 +151,7 @@ export default function ArchFileViewer({ filePath, content: initialContent }: Pr
   const handleReload = useCallback(async () => {
     setLoading(true)
     let newContent = ''
-    if (filePath.startsWith('vela://core/')) {
+    if (filePath.startsWith('moshu://core/')) {
       newContent = await readCoreContent(filePath)
     } else {
       // DB 化后架构文件不应有物理路径

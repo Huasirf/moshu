@@ -120,6 +120,26 @@ export class ForeshadowingRepository {
     )
   }
 
+  /** 删除「本章埋设」的伏笔（取消定稿回滚用） */
+  static deleteByPlantedChapter(chapterNumber: number): number {
+    const db = getProjectDb()
+    if (!db) return 0
+    const r = db.prepare('DELETE FROM foreshadowings WHERE planted_chapter = ?').run(chapterNumber)
+    return r.changes
+  }
+
+  /** 撤销「本章回收」：已回收的伏笔退回 open，回收章节清空（取消定稿回滚用） */
+  static revertPaidChapter(chapterNumber: number): number {
+    const db = getProjectDb()
+    if (!db) return 0
+    const r = db.prepare(`
+      UPDATE foreshadowings
+      SET status = 'open', paid_chapter = NULL, updated_at = datetime('now')
+      WHERE paid_chapter = ?
+    `).run(chapterNumber)
+    return r.changes
+  }
+
   /** 删除 */
   static remove(id: number): void {
     const db = getProjectDb()

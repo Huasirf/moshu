@@ -1,6 +1,6 @@
-import { create } from 'zustand'
+﻿import { create } from 'zustand'
 
-export const ONBOARDING_STORAGE_KEY = 'vela-feature-tour-v1'
+export const ONBOARDING_STORAGE_KEY = 'moshu-feature-tour-v1'
 
 export function hasSeenFeatureTour(): boolean {
   try { return localStorage.getItem(ONBOARDING_STORAGE_KEY) === 'seen' } catch { return false }

@@ -1,7 +1,8 @@
-import { create } from 'zustand'
+﻿import { create } from 'zustand'
+import { persist } from 'zustand/middleware'
 
 /** 左侧活动栏的视图类型 */
-export type SidebarView = 'home' | 'project' | 'knowledge' | 'characters' | 'foreshadowing' | 'timeline' | 'search' | 'settings'
+export type SidebarView = 'home' | 'project' | 'knowledge' | 'characters' | 'foreshadowing' | 'timeline' | 'search' | 'assets' | 'status' | 'outline' | 'settings'
 
 /** 打开全局搜索的请求：nonce 每次递增，供搜索面板聚焦输入框；text 为预填的搜索词 */
 export interface SearchRequest {
@@ -85,18 +86,18 @@ interface LayoutState {
   closeBatchGenerate: () => void
 }
 
-export const useLayoutStore = create<LayoutState>()((set) => ({
-  // 默认值
+export const useLayoutStore = create<LayoutState>()(persist((set) => ({
+  // 默认值（墨枢：面板默认收起，首屏只保留编辑区，按需呼出）
   sidebarOpen: true,
   sidebarView: 'project',
   sidebarWidth: 260,
   searchRequest: { nonce: 0 },
 
-  aiPanelOpen: true,
+  aiPanelOpen: false,
   aiPanelWidth: 320,
   rightView: 'agent',
 
-  bottomPanelOpen: true,
+  bottomPanelOpen: false,
   bottomTab: 'tasks',
   bottomPanelHeight: 200,
 
@@ -152,4 +153,18 @@ export const useLayoutStore = create<LayoutState>()((set) => ({
   closeChapterCreation: () => set({ chapterCreationOpen: false, chapterCreationPrefill: null }),
   openBatchGenerate: () => set({ batchGenerateOpen: true }),
   closeBatchGenerate: () => set({ batchGenerateOpen: false }),
+}), {
+  // 只持久化面板布局偏好；弹窗状态与搜索请求属于会话态，不落地
+  name: 'moshu-layout',
+  partialize: (s) => ({
+    sidebarOpen: s.sidebarOpen,
+    sidebarView: s.sidebarView,
+    sidebarWidth: s.sidebarWidth,
+    aiPanelOpen: s.aiPanelOpen,
+    aiPanelWidth: s.aiPanelWidth,
+    rightView: s.rightView,
+    bottomPanelOpen: s.bottomPanelOpen,
+    bottomTab: s.bottomTab,
+    bottomPanelHeight: s.bottomPanelHeight,
+  }),
 }))

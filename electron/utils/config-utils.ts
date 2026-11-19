@@ -1,15 +1,15 @@
-import fs from 'node:fs'
+﻿import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 import { GlobalConfig } from '../../src/shared/ipc-channels'
 
-export const VELA_HOME = path.join(os.homedir(), '.vela')
+export const MOSHU_HOME = path.join(os.homedir(), '.moshu')
 
-export function ensureVelaHome() {
+export function ensureMoshuHome() {
   const dirs = [
-    VELA_HOME,
-    path.join(VELA_HOME, 'prompts'),
-    path.join(VELA_HOME, 'logs'),
+    MOSHU_HOME,
+    path.join(MOSHU_HOME, 'prompts'),
+    path.join(MOSHU_HOME, 'logs'),
   ]
   for (const dir of dirs) {
     if (!fs.existsSync(dir)) {
@@ -54,14 +54,14 @@ export function readJsonFile<T>(filePath: string, fallback: T): T {
   if (primary.reason === 'missing') return fallback
 
   const quarantined = quarantineCorruptFile(filePath)
-  console.warn(`[Vela] ${filePath} 已损坏，已另存为 ${quarantined ?? '（隔离失败）'}，尝试从备份恢复:`, primary.error)
+  console.warn(`[MoShu] ${filePath} 已损坏，已另存为 ${quarantined ?? '（隔离失败）'}，尝试从备份恢复:`, primary.error)
 
   const backup = tryReadJson<T>(`${filePath}.bak`)
   if (backup.ok) {
     try {
       writeJsonFile(filePath, backup.value)
     } catch (e) {
-      console.warn(`[Vela] 从备份恢复 ${filePath} 写回失败:`, e)
+      console.warn(`[MoShu] 从备份恢复 ${filePath} 写回失败:`, e)
     }
     return backup.value
   }
@@ -111,9 +111,9 @@ export function writeJsonFile(filePath: string, data: unknown) {
   }
 }
 
-export const GLOBAL_CONFIG_PATH = path.join(VELA_HOME, 'config.json')
-export const MODELS_CONFIG_PATH = path.join(VELA_HOME, 'models.json')
-export const RECENT_PROJECTS_PATH = path.join(VELA_HOME, 'recent-projects.json')
+export const GLOBAL_CONFIG_PATH = path.join(MOSHU_HOME, 'config.json')
+export const MODELS_CONFIG_PATH = path.join(MOSHU_HOME, 'models.json')
+export const RECENT_PROJECTS_PATH = path.join(MOSHU_HOME, 'recent-projects.json')
 
 export const DEFAULT_GLOBAL_CONFIG: GlobalConfig = {
   theme: 'dark',

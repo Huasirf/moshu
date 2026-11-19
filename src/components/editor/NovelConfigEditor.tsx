@@ -1,9 +1,10 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { Save, Sparkles, Info, Loader2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useProjectStore } from '../../stores/project-store'
 import { useLLMStore } from '../../stores/llm-store'
 import { useWorkflowStore } from '../../stores/workflow-store'
+import { ipc } from '../../services/ipc-client'
 import type { NovelConfig } from '../../shared/ipc-channels'
 import type { GeneratableField } from '../../services/workflows/commands/generate-field.command'
 import { Button } from '../ui/Button'
@@ -11,6 +12,7 @@ import { Input } from '../ui/Input'
 import { Textarea } from '../ui/Textarea'
 import { NativeSelect } from '../ui/NativeSelect'
 import GenerateConfigDialog from '../dialogs/GenerateConfigDialog'
+import RuleItemsEditor from './RuleItemsEditor'
 
 /** Genre options with i18n labels (values kept in Chinese for backward compatibility) */
 const GENRE_OPTIONS = [
@@ -34,6 +36,15 @@ const GENRE_OPTIONS = [
   { value: '职场', labelKey: 'novelConfig.genres.workplace' },
 ] as const
 
+/** 风格档案（style_profiles）在渲染层的只读视图 */
+interface StyleProfileView {
+  id: number
+  name: string
+  isActive: boolean
+  rules: string[]
+  promptHint: string
+}
+
 /** 小说配置编辑器 — Tab 内的可视化配置面板 */
 export default function NovelConfigEditor() {
   const { t } = useTranslation('editors')
@@ -48,6 +59,8 @@ export default function NovelConfigEditor() {
   const addLog = useWorkflowStore.getState().addLog
   const [saving, setSaving] = useState(false)
   const [showGenerateConfig, setShowGenerateConfig] = useState(false)
+  /** 规则区视图：结构化条目 / 原文 */
+  const [ruleView, setRuleView] = useState<'items' | 'raw'>('items')
 
   // 各区块的独立生成状态
   const [generatingField, setGeneratingField] = useState<GeneratableField | null>(null)
@@ -55,6 +68,83 @@ export default function NovelConfigEditor() {
   // 文风指纹：粘贴样章 + 学习状态
   const [styleSample, setStyleSample] = useState('')
   const [learningStyle, setLearningStyle] = useState(false)
+
+  // P4-2 风格档案：列表 + 编辑表单
+  const [styleProfiles, setStyleProfiles] = useState<StyleProfileView[]>([])
+  const [editingProfileId, setEditingProfileId] = useState<number | 'new' | null>(null)
+  const [profileName, setProfileName] = useState('')
+  const [profileHint, setProfileHint] = useState('')
+  const [profileRules, setProfileRules] = useState('')
+
+  const loadStyleProfiles = async () => {
+    try {
+      const list = await ipc.invoke('db:style-list') as StyleProfileView[]
+      setStyleProfiles(Array.isArray(list) ? list : [])
+    } catch {
+      setStyleProfiles([])
+    }
+  }
+
+  useEffect(() => {
+    void loadStyleProfiles()
+  }, [currentProject?.path])
+
+  const openProfileEditor = (profile?: StyleProfileView, useFingerprint = false) => {
+    setEditingProfileId(profile?.id ?? 'new')
+    setProfileName(profile?.name ?? t('novelConfig.styleProfiles.create'))
+    setProfileHint(profile?.promptHint ?? (useFingerprint ? (config?.styleReference || '') : ''))
+    setProfileRules((profile?.rules ?? []).join('\n'))
+  }
+
+  const handleSaveProfile = async () => {
+    const name = profileName.trim()
+    if (!name) {
+      addLog('error', `⚠️ ${t('novelConfig.styleProfiles.needName')}`)
+      return
+    }
+    const payload = {
+      name,
+      promptHint: profileHint,
+      rules: profileRules.split('\n').map((r) => r.trim()).filter(Boolean),
+      isActive: editingProfileId === 'new'
+        ? styleProfiles.every((p) => !p.isActive)
+        : (styleProfiles.find((p) => p.id === editingProfileId)?.isActive ?? false),
+    }
+    try {
+      if (editingProfileId === 'new') {
+        await ipc.invoke('db:style-create', payload)
+      } else if (typeof editingProfileId === 'number') {
+        await ipc.invoke('db:style-update', editingProfileId, payload)
+      }
+      addLog('info', `✅ ${t('novelConfig.styleProfiles.saved')}`)
+      setEditingProfileId(null)
+      await loadStyleProfiles()
+    } catch (e) {
+      addLog('error', t('novelConfig.styleProfiles.failed', { error: String(e) }))
+    }
+  }
+
+  const handleActivateProfile = async (id: number) => {
+    try {
+      await ipc.invoke('db:style-set-active', id)
+      addLog('info', `✅ ${t('novelConfig.styleProfiles.activated')}`)
+      await loadStyleProfiles()
+    } catch (e) {
+      addLog('error', t('novelConfig.styleProfiles.failed', { error: String(e) }))
+    }
+  }
+
+  const handleDeleteProfile = async (id: number) => {
+    if (!window.confirm(t('novelConfig.styleProfiles.confirmDelete'))) return
+    try {
+      await ipc.invoke('db:style-delete', id)
+      addLog('info', `✅ ${t('novelConfig.styleProfiles.deleted')}`)
+      if (editingProfileId === id) setEditingProfileId(null)
+      await loadStyleProfiles()
+    } catch (e) {
+      addLog('error', t('novelConfig.styleProfiles.failed', { error: String(e) }))
+    }
+  }
 
   // 直接从 Store 读取配置 — 单一数据源，无需 local state 镜像
   const config = currentProject?.novelConfig ?? null
@@ -286,6 +376,48 @@ export default function NovelConfigEditor() {
             <Textarea value={config.worldSetting} onChange={(e) => update('worldSetting', e.target.value)} placeholder={t('novelConfig.worldSettingPlaceholder')} rows={4} />
           </Section>
 
+          {/* 规则区 */}
+          <Section
+            title={t('novelConfig.rulebook')}
+            desc={t('novelConfig.rulebookDesc')}
+            t={t}
+          >
+            <div className="flex items-center gap-2 mb-2">
+              <Button
+                variant={ruleView === 'items' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setRuleView('items')}
+              >
+                结构化条目
+              </Button>
+              <Button
+                variant={ruleView === 'raw' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setRuleView('raw')}
+              >
+                原文视图
+              </Button>
+            </div>
+            {ruleView === 'items' ? (
+              <RuleItemsEditor
+                rulebook={config.rulebook || ''}
+                onCompiled={compiled => update('rulebook', compiled)}
+              />
+            ) : (
+              <div className="space-y-1.5">
+                <Textarea
+                  value={config.rulebook || ''}
+                  onChange={(e) => update('rulebook', e.target.value)}
+                  placeholder={t('novelConfig.rulebookPlaceholder')}
+                  rows={10}
+                />
+                <p className="text-[0.7rem] text-amber-500">
+                  直接编辑原文不会同步结构化条目库，生成/审稿注入仍以条目库为准。建议回到「结构化条目」修改。
+                </p>
+              </div>
+            )}
+          </Section>
+
           {/* 金手指 */}
           <Section
             title={t('novelConfig.goldenFinger')}
@@ -382,6 +514,144 @@ export default function NovelConfigEditor() {
                 从已写章节学习
               </Button>
             </div>
+          </Section>
+
+          {/* 风格档案（P4-2） */}
+          <Section
+            title={t('novelConfig.styleProfiles.title')}
+            desc={t('novelConfig.styleProfiles.desc')}
+            t={t}
+          >
+            {styleProfiles.length === 0 && (
+              <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
+                {t('novelConfig.styleProfiles.empty')}
+              </p>
+            )}
+            <div className="space-y-2">
+              {styleProfiles.map((p) => (
+                <div
+                  key={p.id}
+                  className="flex items-center justify-between gap-2 rounded-[var(--radius-md)] border px-3 py-2"
+                  style={{ borderColor: 'var(--color-border)' }}
+                >
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium truncate" style={{ color: 'var(--color-text)' }}>
+                        {p.name}
+                      </span>
+                      {p.isActive && (
+                        <span
+                          className="text-[10px] px-1.5 py-0.5 rounded"
+                          style={{ background: 'var(--color-accent)', color: '#fff' }}
+                        >
+                          {t('novelConfig.styleProfiles.active')}
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-xs mt-0.5 truncate" style={{ color: 'var(--color-text-muted)' }}>
+                      {p.promptHint || (p.rules.length ? `${p.rules.length} × rules` : '—')}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <Button variant="ghost" size="sm" onClick={() => openProfileEditor(p)}>
+                      {t('novelConfig.styleProfiles.edit')}
+                    </Button>
+                    {!p.isActive && (
+                      <Button variant="outline" size="sm" onClick={() => handleActivateProfile(p.id)}>
+                        {t('novelConfig.styleProfiles.activate')}
+                      </Button>
+                    )}
+                    <Button variant="ghost" size="sm" onClick={() => handleDeleteProfile(p.id)}>
+                      {t('novelConfig.styleProfiles.delete')}
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {editingProfileId !== null ? (
+              <div className="mt-3 space-y-2">
+                <Field label={t('novelConfig.styleProfiles.nameLabel')}>
+                  <Input
+                    value={profileName}
+                    onChange={(e) => setProfileName(e.target.value)}
+                    placeholder={t('novelConfig.styleProfiles.namePlaceholder')}
+                  />
+                </Field>
+                <Field label={t('novelConfig.styleProfiles.hintLabel')}>
+                  <Textarea
+                    value={profileHint}
+                    onChange={(e) => setProfileHint(e.target.value)}
+                    placeholder={t('novelConfig.styleProfiles.hintPlaceholder')}
+                    rows={4}
+                  />
+                </Field>
+                <Field label={t('novelConfig.styleProfiles.rulesLabel')}>
+                  <Textarea
+                    value={profileRules}
+                    onChange={(e) => setProfileRules(e.target.value)}
+                    placeholder={t('novelConfig.styleProfiles.rulesPlaceholder')}
+                    rows={3}
+                  />
+                </Field>
+                <div className="flex items-center gap-2">
+                  <Button variant="default" size="sm" onClick={handleSaveProfile}>
+                    <Save size={11} /> {t('novelConfig.styleProfiles.save')}
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={() => setEditingProfileId(null)}>
+                    {t('novelConfig.styleProfiles.cancel')}
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 mt-3">
+                <Button variant="outline" size="sm" onClick={() => openProfileEditor()}>
+                  {t('novelConfig.styleProfiles.create')}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => openProfileEditor(undefined, true)}
+                  disabled={!config.styleReference?.trim()}
+                >
+                  {t('novelConfig.styleProfiles.createFromFingerprint')}
+                </Button>
+              </div>
+            )}
+          </Section>
+
+          {/* 项目词表（接地气） */}
+          <Section
+            title={t('novelConfig.wordList.title')}
+            desc={t('novelConfig.wordList.desc')}
+            t={t}
+          >
+            <label className="text-xs mb-1 block font-medium text-[var(--color-text-muted)]">
+              {t('novelConfig.wordList.bannedLabel')}
+            </label>
+            <Textarea
+              value={(config.bannedTerms ?? []).join('\n')}
+              onChange={(e) => update('bannedTerms', e.target.value.split('\n'))}
+              placeholder={t('novelConfig.wordList.bannedPlaceholder')}
+              rows={4}
+            />
+            <label className="text-xs mb-1 mt-3 block font-medium text-[var(--color-text-muted)]">
+              {t('novelConfig.wordList.replaceLabel')}
+            </label>
+            <Textarea
+              value={Object.entries(config.replacements ?? {}).map(([k, v]) => `${k}=>${v}`).join('\n')}
+              onChange={(e) => {
+                const map: Record<string, string> = {}
+                for (const line of e.target.value.split('\n')) {
+                  const [from, ...rest] = line.split('=>')
+                  const key = from.trim()
+                  if (key) map[key] = rest.join('=>').trim()
+                }
+                update('replacements', map)
+              }}
+              placeholder={t('novelConfig.wordList.replacePlaceholder')}
+              rows={4}
+            />
           </Section>
 
           {/* 美术风格（文生图） */}

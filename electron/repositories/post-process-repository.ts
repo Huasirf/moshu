@@ -68,6 +68,29 @@ export class PostProcessRepository {
         return runId
     }
 
+    /**
+     * 删除某业务实体的全部后处理跑批（取消定稿回滚用）。
+     * 先删步骤再删实例，保证不留下孤儿步骤。
+     */
+    static deleteBySource(sourceType: string, sourceId: string): number {
+        const db = getProjectDb()
+        if (!db) return 0
+        const runs = db.prepare(`
+      SELECT id FROM post_process_runs
+      WHERE trigger_source_type = ? AND trigger_source_id = ?
+    `).all(sourceType, sourceId) as Array<{ id: string }>
+        if (runs.length === 0) return 0
+        const deleteSteps = db.prepare('DELETE FROM post_process_steps WHERE run_id = ?')
+        const deleteRun = db.prepare('DELETE FROM post_process_runs WHERE id = ?')
+        db.transaction(() => {
+            for (const run of runs) {
+                deleteSteps.run(run.id)
+                deleteRun.run(run.id)
+            }
+        })()
+        return runs.length
+    }
+
     /** 获取最新的跑批实例（按 sourceType + sourceId 查询） */
     static getLatestRun(sourceType: string, sourceId: string): PostProcessRunData | null {
         const db = getProjectDb()

@@ -98,9 +98,9 @@ inclusion: always
 
 ## 13. 单元测试（vitest）
 
-- 测试框架是 **vitest**，`environment: 'node'`，`globals: false`（所以每个测试文件都要 `import { describe, it, expect } from 'vitest'`）。跑测试用 `pnpm run test`（= `vitest run`；PowerShell 下仍需 `cmd /c` 包装 + 日志文件判断，见第 2 节）。
+- 测试框架是 **vitest**，`environment: 'node'`，`globals: false`（所以每个测试文件都要 `import { describe, it, expect } from 'vitest'`）。跑测试用 `pnpm run test`（本机封装为 Electron 运行时，见下条；CI 用 `pnpm run test:node` = 原生 `vitest run`）。
 - `vitest.config.ts` 按 glob 收集 `src/**/__tests__/**/*.test.ts` 与 `electron/**/__tests__/**/*.test.ts`，新测试放对位置即自动纳入；`standalone.test.ts`（node:assert 脚本式）在 `exclude` 里。
-- **本机 SQLite 相关测试会失败**：`node_modules` 里的 better-sqlite3 是按 Electron ABI 编译的，用 Node 跑会报 `NODE_MODULE_VERSION` 不匹配——这是环境问题，不是代码问题。CI（`.github/workflows/ci.yml`）按 Node 安装依赖，可正常跑。本机要全量跑通，用 Electron 充当 Node：`cmd /v:on /c "cd /d E:\...\vela& set ELECTRON_RUN_AS_NODE=1& node_modules\electron\dist\electron.exe node_modules\vitest\vitest.mjs run > tmp\vitest.log 2>&1& echo VITEST_EXIT=!errorlevel!>> tmp\vitest.log"`（`set X=1&` 之间不要留空格，也不要写成 `set "X=1"`，否则破坏外层引号）。
+- **本机 SQLite 相关测试会失败**：`node_modules` 里的 better-sqlite3 是按 Electron ABI 编译的，用 Node 跑会报 `NODE_MODULE_VERSION` 不匹配——这是环境问题，不是代码问题。CI（`.github/workflows/ci.yml`）按 Node 安装依赖，可正常跑。本机要全量跑通，用 Electron 充当 Node：`cmd /v:on /c "cd /d E:\...\vela& set ELECTRON_RUN_AS_NODE=1& node_modules\electron\dist\electron.exe node_modules\vitest\vitest.mjs run > tmp\vitest.log 2>&1& echo VITEST_EXIT=!errorlevel!>> tmp\vitest.log"`（`set X=1&` 之间不要留空格，也不要写成 `set "X=1"`，否则破坏外层引号）。**该命令已封装**：`npm test` 跑全部、`npm run test:db` 只跑 `electron/__tests__`，实现见 `scripts/run-tests.mjs`；应用开着也能跑，无需关闭窗口。
 - **工作目录的盘符必须大写**（`cd /d E:\...`）：盘符小写（`e:\`）时，vitest 的**相对路径** `vi.mock('../xxx')` 会**静默失效**（加载的仍是真实模块），裸模块名（`vi.mock('electron')`）不受影响。
 - **测试不能碰真实的 `~/.vela`**：需要读写配置/记录文件的模块，把文件路径做成可注入参数（参考 `electron/mcp/mcp-approval.ts` 的 `createMcpApprover`），测试里传 `os.tmpdir()` 下的临时路径，不要依赖 mock `config-utils` 的 `VELA_HOME`。
 - CI 每次 push / PR 跑 `typecheck` + `lint`（`--max-warnings 0`）+ `test`，锁文件用 `--frozen-lockfile`：改依赖必须同时提交更新后的 `pnpm-lock.yaml`。

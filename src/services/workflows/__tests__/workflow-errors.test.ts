@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import i18n from '../../../i18n'
+import i18n, { ensureLocale } from '../../../i18n'
 import { WorkflowCancelledError, isWorkflowCancelled, throwIfCancelled } from '../workflow-errors'
 
 describe('isWorkflowCancelled', () => {
@@ -16,6 +16,8 @@ describe('isWorkflowCancelled', () => {
   it('当前界面语言的取消文案能识别', async () => {
     const prev = i18n.language
     try {
+      // en 资源按需加载（P8-3），先预热再切换
+      await ensureLocale('en')
       await i18n.changeLanguage('en')
       expect(isWorkflowCancelled(new WorkflowCancelledError())).toBe(true)
       expect(new WorkflowCancelledError().message).toBe('Workflow cancelled')

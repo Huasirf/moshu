@@ -1,4 +1,4 @@
-import { ipc } from '../ipc-client'
+﻿import { ipc } from '../ipc-client'
 import { useProjectStore } from '../../stores/project-store'
 import { useEditorStore } from '../../stores/editor-store'
 import { useWorkflowStore } from '../../stores/workflow-store'
@@ -44,7 +44,7 @@ export function refreshAfterStoryRevision(projectPath: string, revision: StoryRe
   for (const change of revision.changes) {
     const value = revision.status === 'undone' ? change.before : change.after
     if (change.kind === 'draft') {
-      const filePath = `vela://draft/${change.id}`
+      const filePath = `moshu://draft/${change.id}`
       const editor = useEditorStore.getState()
       for (const tab of editor.tabs) if (!tab.dirty && tab.type === 'chapter' && tab.filePath === filePath) editor.syncTabContent(tab.id, value)
       if (revision.status === 'applied') editor.openFile({ id: filePath, filePath, name: change.title, type: 'chapter', content: value })
@@ -56,7 +56,7 @@ export function refreshAfterStoryRevision(projectPath: string, revision: StoryRe
     const pathMap: Record<string, string> = { premise: 'premise', worldbuilding: 'worldbuilding', charactersArch: 'characters', synopsis: 'synopsis' }
     if (pathMap[change.field]) {
       for (const tab of useEditorStore.getState().tabs) {
-        if (!tab.dirty && [ `vela://core/${pathMap[change.field]}`, `vela://core/${pathMap[change.field]}.md` ].includes(tab.filePath ?? '')) useEditorStore.getState().syncTabContent(tab.id, value)
+        if (!tab.dirty && [ `moshu://core/${pathMap[change.field]}`, `moshu://core/${pathMap[change.field]}.md` ].includes(tab.filePath ?? '')) useEditorStore.getState().syncTabContent(tab.id, value)
       }
     }
   }

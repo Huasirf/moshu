@@ -15,8 +15,6 @@
     "themeLabel": "Theme: {{theme}}"
   },
   "statusBar": {
-    "supportAuthor": "❤️ Support the Author",
-    "sponsorTooltip": "Business & Sponsorship",
     "currentModel": "Current model: {{name}}",
     "clickToConfigModel": "Click to configure model",
     "noModel": "No model configured",
@@ -30,10 +28,13 @@
     "foreshadowing": "Foreshadowing Ledger",
     "timeline": "Story Timeline",
     "search": "Search (Ctrl+Shift+F)",
+    "outline": "Outline Tree",
     "home": "Home",
     "project": "Project",
     "knowledge": "Knowledge Base",
     "characters": "Characters",
+    "assets": "Asset Library",
+    "status": "Status",
     "settings": "Settings",
     "agent": "AI Assistant",
     "projectManagement": "Project Management",

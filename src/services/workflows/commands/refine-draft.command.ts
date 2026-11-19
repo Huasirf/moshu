@@ -1,4 +1,4 @@
-import { BaseWorkflowCommand, CommandExecuteParams } from './base-command'
+﻿import { BaseWorkflowCommand, CommandExecuteParams } from './base-command'
 import { useProjectStore } from '../../../stores/project-store'
 import { getPromptTemplate } from '../../prompt-templates'
 import { ChapterPromptBuilder } from '../../prompts/prompt-builder'
@@ -56,6 +56,7 @@ export class RefineDraftCommand extends BaseWorkflowCommand<string> {
       // 模板正文引用 {{writing_style}} 但此前从未注入（一直残留字面占位符，
       // 文风只能靠 Canon 渲染间接带入；Canon 渲染去重后此处必须显式注入）
       .withWritingStyle(project.novelConfig.writingStyle || '')
+      .withRulebook(project.novelConfig.rulebook || '')
       .withUserRefinePrompt(userPromptBlock)
 
     // ==========================================
@@ -165,7 +166,7 @@ export class RefineDraftCommand extends BaseWorkflowCommand<string> {
       content: finalRefined,
       revisionPath: String(createRes.id),
       chapterNumber: this.params.chapterNumber,
-      chapterDir: `vela://draft/ch${this.params.chapterNumber}`,
+      chapterDir: `moshu://draft/ch${this.params.chapterNumber}`,
     })
 
     context.data.refined = finalRefined

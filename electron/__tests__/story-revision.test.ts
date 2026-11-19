@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+﻿import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -13,7 +13,7 @@ import type { StoryTextEdit } from '../../src/shared/story-revision'
 let folder: string
 let draftId: number
 beforeEach(() => {
-  folder = fs.mkdtempSync(path.join(os.tmpdir(), 'vela-story-revision-'))
+  folder = fs.mkdtempSync(path.join(os.tmpdir(), 'moshu-story-revision-'))
   initProjectDatabase(folder)
   ProjectCoreRepository.init('剧情调整测试')
   ProjectCoreRepository.update({ synopsis: '反派在第八章败退。', globalGuidance: '维持动机可信。' })
@@ -25,7 +25,7 @@ beforeEach(() => {
 afterEach(() => {
   closeProjectDatabase()
   const resolved = path.resolve(folder)
-  if (path.dirname(resolved) !== path.resolve(os.tmpdir()) || !path.basename(resolved).startsWith('vela-story-revision-')) throw new Error('Unsafe cleanup path')
+  if (path.dirname(resolved) !== path.resolve(os.tmpdir()) || !path.basename(resolved).startsWith('moshu-story-revision-')) throw new Error('Unsafe cleanup path')
   fs.rmSync(resolved, { recursive: true })
 })
 function edit(kind: StoryTextEdit['kind'], id: string, field: string, oldText: string, newText: string): StoryTextEdit {

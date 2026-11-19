@@ -11,9 +11,20 @@
     "createProject": "创建项目",
     "creating": "创建中..."
   },
+  "assetProposal": {
+    "title": "确认拆书产物",
+    "description": "以下设定由 AI 从正文推断，写入前请确认。章节大纲与节拍已自动入大纲，无需确认。",
+    "worldTitle": "世界观与故事架构",
+    "charactersTitle": "人物设定（{{count}} 人）",
+    "empty": "本次未推断出内容",
+    "moreCharacters": "··· 还有 {{count}} 人 ···",
+    "autoNote": "关系描述随角色卡一同写入；墨枢不会从正文中自动推断结构化人物关系。",
+    "skip": "跳过设定，仅保留大纲",
+    "apply": "确认并写入"
+  },
   "importNovel": {
     "title": "导入已有小说",
-    "description": "选择小说文件，Vela 将自动拆章并通过 AI 逆向推演全部结构化数据",
+    "description": "选择小说文件，墨枢将自动拆章并通过 AI 逆向推演全部结构化数据",
     "selectFile": "选择小说文件",
     "filesSelected": "{{count}} 个文件已选择",
     "supportedFormats": "支持 .txt / .md 文件（单个或多个）",
@@ -185,5 +196,28 @@
       "writingRequirements": "全局写作要求",
       "subGenre": "细分类型"
     }
+  },
+  "projectManager": {
+    "title": "项目管理",
+    "description": "管理最近打开的小说项目。删除会把整个项目目录移入系统回收站。",
+    "empty": "最近没有打开过项目",
+    "current": "当前",
+    "open": "打开",
+    "reveal": "在文件夹中显示",
+    "revealFailed": "无法打开文件夹：{{error}}",
+    "removeRecent": "从列表移除",
+    "removeTitle": "从最近列表移除",
+    "removeConfirm": "确定要把「{{name}}」从最近项目列表移除吗？\n\n磁盘上的项目文件不会被删除。",
+    "removeSuccess": "已从最近列表移除",
+    "removeFailed": "移除失败",
+    "delete": "删除项目",
+    "deleteTitle": "删除项目",
+    "deleteConfirm": "确定要删除「{{name}}」吗？\n\n项目目录：{{path}}\n\n整个目录会被移入系统回收站。如果这是当前打开的项目，会先关闭项目。",
+    "deleteConfirmButton": "移入回收站",
+    "deleteSuccess": "项目已移入回收站",
+    "deleteMissing": "目录已不存在，已从最近列表移除",
+    "deleteFailed": "删除失败：{{error}}",
+    "deleteHint": "删除会把项目目录和其中的数据库、章节、备份一起移入回收站；需要时可从回收站恢复。",
+    "close": "关闭"
   }
 }

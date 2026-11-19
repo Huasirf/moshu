@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
   Database, BookOpen, FileText,
-  Search, RefreshCw, Layers, Zap, Server, Activity,
+  Search, RefreshCw, Layers, Zap, Server, Activity, Clock,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '../ui/Button'
@@ -15,6 +15,7 @@ import {
   loadKBData, getVectorlessCount, searchKB, backfillVectors,
   type KBDocument, type SearchResult, type KBStatsData,
 } from '../../services/knowledge-service'
+import RecallEvalPanel from '../panels/RecallEvalPanel'
 
 /**
  * 知识库概览页面 — LanceDB 向量数据库的管理中心
@@ -149,11 +150,31 @@ export default function KnowledgeOverview() {
         </div>
 
         {/* ===== 统计卡片 ===== */}
-        <div className="grid grid-cols-4 gap-3 mb-6">
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-6">
           <StatCard icon={<FileText size={14} />} label={t('docCount')} value={stats.documentCount} />
-          <StatCard icon={<Layers size={14} />} label={t('chunkCount')} value={stats.totalChunks} />
+          <StatCard
+            icon={<Layers size={14} />}
+            label={t('chunkCount')}
+            value={stats.totalChunks}
+            badge={vectorlessCount > 0 ? t('unindexedBadge', { count: vectorlessCount }) : undefined}
+            badgeColor="#f59e0b"
+          />
           <StatCard
             icon={<Server size={14} />}
+            label={t('vectorDimension')}
+            value={hasVectors ? stats.vectorDimension : t('noVector')}
+            badge={hasVectors ? 'Embedding' : undefined}
+            badgeColor="#22c55e"
+          />
+          <StatCard
+            icon={<Clock size={14} />}
+            label={t('lastUpdated')}
+            value={stats.lastUpdatedAt
+              ? new Date(stats.lastUpdatedAt).toLocaleString(undefined, { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+              : t('neverIndexed')}
+          />
+          <StatCard
+            icon={<Database size={14} />}
             label={t('engine')}
             value="LanceDB"
             accent
@@ -302,6 +323,9 @@ export default function KnowledgeOverview() {
             </div>
           )}
         </div>
+
+        {/* ===== 召回评估（P2-4） ===== */}
+        <RecallEvalPanel />
 
       </div>
     </div>

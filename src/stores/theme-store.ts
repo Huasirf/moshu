@@ -1,4 +1,4 @@
-import { create } from 'zustand'
+﻿import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { ipc } from '../services/ipc-client'
 import i18n from '../i18n'
@@ -114,6 +114,30 @@ interface ThemeState {
 
 // ─── Store ───────────────────────────────────────────────────────────────
 
+/**
+ * 旧版 Vela 存储键 → 新版墨枢键：只在新键不存在时复制，
+ * 保证升级后语言/缩放/主题不被重置（旧键保留，不做删除）。
+ */
+function migrateLegacyLocalStorageKeys() {
+  try {
+    const pairs: Array<[string, string]> = [
+      ['moshu-theme', 'vela-theme'],
+      ['moshu-theme-migrated', 'vela-theme-migrated'],
+      ['moshu-theme-dark-default', 'vela-theme-dark-default'],
+      ['moshu-locale', 'vela-locale'],
+      ['moshu-zoom-level', 'vela-zoom-level'],
+      ['moshu-feature-tour-v1', 'vela-feature-tour-v1'],
+    ]
+    for (const [next, prev] of pairs) {
+      if (!localStorage.getItem(next)) {
+        const old = localStorage.getItem(prev)
+        if (old !== null) localStorage.setItem(next, old)
+      }
+    }
+  } catch { /* 隐私模式 / 存储不可用时忽略 */ }
+}
+migrateLegacyLocalStorageKeys()
+
 export const useThemeStore = create<ThemeState>()(
   persist(
     (set, get) => ({
@@ -130,7 +154,6 @@ export const useThemeStore = create<ThemeState>()(
       },
 
       initTheme: () => {
-        const { zoom, writingFont, uiFont } = get()
         let { theme } = get()
 
         // --- 迁移并兼容历史数据版本 ---
@@ -148,18 +171,26 @@ export const useThemeStore = create<ThemeState>()(
         // 为了安全起见这里不再强转 dark -> galaxy，如果是直接跳版的用户，就把旧版的 dark 继承成新的黑夜 dark 也合情合理。
         // 但根据需求：“原本的深蓝色改叫 galaxy”，如果用户之前存的是旧版 'dark' (深蓝)，最好迁移。
         // 如何判断？如果 localStorage 中没有存到某处特征，我们可以直接迁移：
-        if ((theme as string) === 'dark' && localStorage.getItem('vela-theme-migrated') !== '1') {
+        if ((theme as string) === 'dark' && localStorage.getItem('moshu-theme-migrated') !== '1') {
           theme = 'galaxy'
           set({ theme })
-          localStorage.setItem('vela-theme-migrated', '1')
+          localStorage.setItem('moshu-theme-migrated', '1')
+        }
+
+        // 墨枢改版：纯黑 dark 成为默认主题，中文界面默认思源黑体；老用户一次性迁移，之后仍可手动切换
+        if (localStorage.getItem('moshu-theme-dark-default') !== '1') {
+          theme = 'dark'
+          set({ theme, uiFont: 'noto-sans-sc' })
+          localStorage.setItem('moshu-theme-dark-default', '1')
         }
 
         const resolved = resolveTheme(theme)
         set({ resolvedTheme: resolved })
         applyTheme(resolved)
-        applyZoom(zoom)
-        applyWritingFont(writingFont)
-        applyUiFont(uiFont)
+        // 迁移可能改写过 uiFont 等字段，应用时读最新状态
+        applyZoom(get().zoom)
+        applyWritingFont(get().writingFont)
+        applyUiFont(get().uiFont)
       },
 
       zoomIn: () => {
@@ -196,7 +227,7 @@ export const useThemeStore = create<ThemeState>()(
       },
     }),
     {
-      name: 'vela-theme',
+      name: 'moshu-theme',
       partialize: (state) => ({
         theme: state.theme,
         zoom: state.zoom,

@@ -1,4 +1,4 @@
-/*
+﻿/*
  * 首屏主题引导：在 React 挂载前同步读取已保存的主题，给 <html> 加主题 class 并设好背景色，
  * 避免加载页与主界面之间背景闪跳。
  * 必须是独立文件（不能写成 index.html 里的内联脚本）：生产构建的 CSP 只允许加载应用自身的脚本文件。
@@ -7,7 +7,8 @@
   var bgMap = { light: '#F7F9FC', galaxy: '#0A1628', paper: '#F5F0E8', dark: '#1E1E1E' };
   var theme = 'dark';
   try {
-    var raw = localStorage.getItem('vela-theme');
+    var raw = localStorage.getItem('moshu-theme');
+    if (!raw) raw = localStorage.getItem('vela-theme'); // 兼容旧版存储键
     if (raw) {
       var state = JSON.parse(raw).state;
       theme = state.resolvedTheme || state.theme || 'dark';
@@ -22,6 +23,6 @@
   document.documentElement.classList.add(theme);
 
   document.body.style.backgroundColor = bg;
-  /* 将背景色注入 CSS 变量供 .vela-initial-loader 引用 */
+  /* 将背景色注入 CSS 变量供 .moshu-initial-loader 引用 */
   document.documentElement.style.setProperty('--loader-bg', bg);
 })();

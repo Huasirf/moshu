@@ -1,7 +1,7 @@
-/**
+﻿/**
  * MCP stdio 子进程的启动参数：环境变量白名单、配置指纹、Windows 命令解析。
  *
- * - 环境变量：子进程不再继承 Vela 的完整环境（其中可能有用户设置的各种 Token、ELECTRON_RUN_AS_NODE 等），
+ * - 环境变量：子进程不再继承 墨枢 的完整环境（其中可能有用户设置的各种 Token、ELECTRON_RUN_AS_NODE 等），
  *   只继承运行命令所需的基础变量与代理设置，再叠加配置文件里为该服务器写明的 env。
  * - 指纹：command / args / env / url 的 sha256，用于「首次运行确认」——配置任何一项变化都需要重新确认。
  * - Windows：npx、pnpm 等是 .cmd 脚本。Node 18.20.2+ 起不带 shell 直接 spawn .cmd 会报 EINVAL，

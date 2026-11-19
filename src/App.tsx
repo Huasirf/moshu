@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+﻿import { useEffect, useRef } from 'react'
 import { Panel, Group as PanelGroup, Separator as PanelResizeHandle } from 'react-resizable-panels'
 import { useTranslation } from 'react-i18next'
 import i18n from './i18n'
@@ -22,6 +22,7 @@ import NewProjectDialog from './components/dialogs/NewProjectDialog'
 import ImportNovelDialog from './components/dialogs/ImportNovelDialog'
 import ChapterCreationDialog from './components/dialogs/ChapterCreationDialog'
 import BatchGenerateDialog from './components/dialogs/BatchGenerateDialog'
+import AssetProposalDialog from './components/dialogs/AssetProposalDialog'
 import ExportDialog from './components/dialogs/ExportDialog'
 import SettingsModal from './components/settings/SettingsModal'
 import { ErrorBoundary } from './components/ErrorBoundary'
@@ -31,7 +32,7 @@ import FeatureTour from './components/onboarding/FeatureTour'
 import { startEditorAutoSave } from './services/editor-autosave'
 
 /**
- * Vela 主应用组件
+ * 墨枢主应用组件
  * 使用 react-resizable-panels 实现可拖拽调整大小的四区布局
  */
 export default function App() {
@@ -42,6 +43,7 @@ export default function App() {
   const rightView = useLayoutStore(s => s.rightView)
   const settingsOpen = useLayoutStore(s => s.settingsOpen)
   const closeSettings = useLayoutStore(s => s.closeSettings)
+  const bottomPanelOpen = useLayoutStore(s => s.bottomPanelOpen)
   const newProjectOpen = useLayoutStore(s => s.newProjectOpen)
   const closeNewProject = useLayoutStore(s => s.closeNewProject)
   const exportOpen = useLayoutStore(s => s.exportOpen)
@@ -66,7 +68,7 @@ export default function App() {
     // 初始化 MCP Store
     useMCPStore.getState().init().catch(e => console.warn('[MCP] 初始化失败:', e))
     if (ipc.isElectron) {
-      const savedZoom = localStorage.getItem('vela-zoom-level')
+      const savedZoom = localStorage.getItem('moshu-zoom-level') ?? localStorage.getItem('vela-zoom-level')
       if (savedZoom) ipc.setZoomLevel(parseFloat(savedZoom))
     }
     // 初始化 ProjectService — 注册全局事件监听（生命周期与 App 一致）
@@ -127,6 +129,16 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [])
 
+  // 工作流任务从 0 变为有时自动打开底部任务面板；只在跳变沿触发，用户手动关闭后不打断
+  const activeTaskCount = useWorkflowStore(s => s.activeRuns.length)
+  const prevTaskCountRef = useRef(0)
+  useEffect(() => {
+    if (prevTaskCountRef.current === 0 && activeTaskCount > 0) {
+      useLayoutStore.getState().openBottomTab('tasks')
+    }
+    prevTaskCountRef.current = activeTaskCount
+  }, [activeTaskCount])
+
   return (
     <div className="flex flex-col w-full h-full overflow-hidden">
       {/* 标题栏 */}
@@ -185,11 +197,15 @@ export default function App() {
             </PanelGroup>
           </Panel>
 
-          {/* 下层：底部面板（铺满整个 PanelGroup 宽度）— 始终挂载，面板控制显隐 */}
-          <PanelResizeHandle />
-          <Panel id="bottom" defaultSize={25} minSize={8}>
-            <BottomPanel />
-          </Panel>
+          {/* 下层：底部面板 — 按需挂载；任务从 0 变为有时自动打开 */}
+          {bottomPanelOpen && (
+            <>
+              <PanelResizeHandle />
+              <Panel id="bottom" defaultSize={25} minSize={8}>
+                <BottomPanel />
+              </Panel>
+            </>
+          )}
         </PanelGroup>
 
         {/* 右侧工具窗口栏（全高，包括底部面板区域） */}
@@ -218,6 +234,7 @@ export default function App() {
         isOpen={batchGenerateOpen}
         onClose={closeBatchGenerate}
       />
+      <AssetProposalDialog />
       <ExportDialog
         isOpen={exportOpen}
         onClose={closeExport}

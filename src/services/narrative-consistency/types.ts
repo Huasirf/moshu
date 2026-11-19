@@ -54,6 +54,18 @@ export interface TimelineEvent {
   summary: string
   /** 影响描述：人物/关系/物品变化（自由文本） */
   impact: string
+  /** 归一后的时间：第 N 天（可带小数表示钟点，如 1.98 ≈ 第 1 天 23:30） */
+  absoluteTime?: string
+  /** 持续时长（原文口径，如「两个时辰」「半日」） */
+  duration?: string
+  /** 来源：canon=旧库回填；finalize_extract=定稿自动抽取；manual=面板手改 */
+  source?: 'canon' | 'finalize_extract' | 'manual'
+  /** 置信度 0–1；低于 0.6 视为模糊时间 */
+  confidence?: number
+  /** 正文证据句 */
+  evidence?: string
+  /** 确认状态：只有 confirmed 参与前情注入 */
+  status?: 'confirmed' | 'pending' | 'rejected'
   /** 创建时间 */
   createdAt?: string
 }

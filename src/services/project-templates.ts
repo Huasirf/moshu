@@ -28,6 +28,7 @@ export const PROJECT_TEMPLATES: ProjectTemplate[] = [
       wordsPerChapter: 3000,
       coreOutline: '',
       worldSetting: '',
+      rulebook: '',
       goldenFinger: '',
       protagonistProfile: '',
       globalGuidance: '',

@@ -6,7 +6,7 @@
  * 点击章节标题打开该章。这里不提供编辑：事件随章节重新定稿自动更新。
  */
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import { ChartGantt, RefreshCw, ChevronDown, ChevronRight, MapPin, Users, Rewind, Search } from 'lucide-react'
+import { ChartGantt, RefreshCw, ChevronDown, ChevronRight, MapPin, Users, Rewind, Search, Check, X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useProjectStore } from '../../../stores/project-store'
 import { ipc } from '../../../services/ipc-client'
@@ -27,6 +27,7 @@ export default function TimelineView() {
   const { t } = useTranslation('panels')
   const projectPath = useProjectStore(s => s.currentProject?.path ?? null)
   const [events, setEvents] = useState<CanonTimelineEvent[]>([])
+  const [pendingEvents, setPendingEvents] = useState<CanonTimelineEvent[]>([])
   const [arcSummaries, setArcSummaries] = useState<CanonArcSummary[]>([])
   const [titles, setTitles] = useState<Map<number, string>>(() => new Map())
   const [loading, setLoading] = useState(false)
@@ -45,13 +46,15 @@ export default function TimelineView() {
     const seq = ++seqRef.current
     setLoading(true)
     try {
-      const [timeline, arcs, blueprints] = await Promise.all([
+      const [timeline, pending, arcs, blueprints] = await Promise.all([
         ipc.invoke('db:canon-timeline-get', ALL_CHAPTERS, true),
+        ipc.invoke('db:canon-timeline-pending'),
         ipc.invoke('db:canon-arc-summary-list'),
         ipc.invoke('db:blueprint-get-all'),
       ])
       if (seq !== seqRef.current) return // 切项目或重复刷新：丢弃过期结果
       setEvents(timeline ?? [])
+      setPendingEvents(pending ?? [])
       setArcSummaries(arcs ?? [])
       setTitles(new Map((blueprints ?? []).filter(b => b?.title).map(b => [b.chapterNumber, b.title])))
       setError(null)
@@ -68,6 +71,7 @@ export default function TimelineView() {
     seqRef.current++
     lastArcRef.current = 0
     setEvents([])
+    setPendingEvents([])
     setArcSummaries([])
     setTitles(new Map())
     setExpandedArcs(null)
@@ -129,6 +133,17 @@ export default function TimelineView() {
       await openDraftTab(resolveDraftTab(target.id, !!finalized), finalized ? label : `${label} v${target.version}`)
     } catch (e) {
       toast.error(t('storyTimeline.openFailed', { error: e instanceof Error ? e.message : String(e) }))
+    }
+  }
+
+  /** 待确认事件：确认后进入前情注入；驳回后不再参与 */
+  const updatePending = async (id: number | undefined, status: 'confirmed' | 'rejected') => {
+    if (!id) return
+    try {
+      await ipc.invoke('db:canon-timeline-set-status', id, status)
+      await load()
+    } catch (e) {
+      toast.error(t('storyTimeline.statusFailed', { error: e instanceof Error ? e.message : String(e) }))
     }
   }
 
@@ -210,6 +225,55 @@ export default function TimelineView() {
           </div>
         )}
 
+        {/* 待确认区：模糊时间 / 轻度漂移，确认后才参与生成与审稿 */}
+        {pendingEvents.length > 0 && !filtering && (
+          <div className="mx-2 mb-2 rounded-md" style={{ border: '1px solid var(--color-warning)' }}>
+            <div className="px-2 py-1.5 flex items-center gap-1.5">
+              <span className="text-xs font-medium" style={{ color: 'var(--color-warning)' }}>
+                {t('storyTimeline.pendingTitle', { count: pendingEvents.length })}
+              </span>
+              <span className="text-[0.65rem] truncate" style={{ color: 'var(--color-text-muted)' }}>
+                {t('storyTimeline.pendingHint')}
+              </span>
+            </div>
+            <ul className="px-2 pb-1.5 flex flex-col gap-1">
+              {pendingEvents.map(ev => (
+                <li
+                  key={ev.id ?? `${ev.chapterNumber}-${ev.sequence}`}
+                  className="rounded px-1.5 py-1"
+                  style={{ backgroundColor: 'var(--color-hover)' }}
+                >
+                  <div className="flex items-center gap-1.5 text-[0.65rem]" style={{ color: 'var(--color-text-muted)' }}>
+                    <span>{chapterLabel(ev.chapterNumber)}</span>
+                    {ev.absoluteTime && <span>{t('storyTimeline.timeDay', { day: ev.absoluteTime })}</span>}
+                    {ev.location && <span>{ev.location}</span>}
+                    <span className="flex-1" />
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-0.5 px-1 rounded"
+                      style={{ border: '1px solid var(--color-border)', color: 'var(--color-text-secondary)' }}
+                      onClick={() => { void updatePending(ev.id, 'confirmed') }}
+                    >
+                      <Check size={10} />{t('storyTimeline.confirm')}
+                    </button>
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-0.5 px-1 rounded"
+                      style={{ border: '1px solid var(--color-border)', color: 'var(--color-text-muted)' }}
+                      onClick={() => { void updatePending(ev.id, 'rejected') }}
+                    >
+                      <X size={10} />{t('storyTimeline.reject')}
+                    </button>
+                  </div>
+                  <p className="text-[0.7rem] leading-relaxed line-clamp-2" style={{ color: 'var(--color-text-secondary)' }}>
+                    {ev.summary}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
         {arcs.map(arc => {
           // 筛选时全部展开：结果本来就少，折叠起来反而找不到
           const open = filtering || (expandedArcs?.has(arc.startChapter) ?? false)
@@ -281,8 +345,16 @@ export default function TimelineView() {
                                   boxShadow: '0 0 0 2px var(--color-sidebar)',
                                 }}
                               />
-                              {(flashback || ev.location || ev.characters.length > 0) && (
+                              {(flashback || ev.location || ev.characters.length > 0 || ev.absoluteTime || ev.source === 'finalize_extract') && (
                                 <div className="flex items-center gap-1.5 flex-wrap text-[0.65rem]" style={{ color: 'var(--color-text-muted)' }}>
+                                  {ev.absoluteTime && (
+                                    <span className="tabular-nums">{t('storyTimeline.timeDay', { day: ev.absoluteTime })}</span>
+                                  )}
+                                  {ev.source === 'finalize_extract' && (
+                                    <span className="px-1 rounded" style={{ border: '1px solid var(--color-border)' }}>
+                                      {t('storyTimeline.sourceFinalize')}
+                                    </span>
+                                  )}
                                   {flashback && (
                                     <span className="px-1 rounded" style={{ color: 'var(--color-warning)', border: '1px solid currentColor' }}>
                                       {t('storyTimeline.flashback')}

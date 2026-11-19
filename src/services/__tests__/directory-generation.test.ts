@@ -6,7 +6,16 @@ import { useProjectStore } from '../../stores/project-store'
 import { useLLMStore } from '../../stores/llm-store'
 import { ipc } from '../ipc-client'
 
-const item = (chapterNumber: number) => ({ chapterNumber, title: `第${chapterNumber}章`, keyEvents: '主角发现证据并付出代价。', characters: ['主角'] })
+const item = (chapterNumber: number) => ({
+  chapterNumber,
+  title: `第${chapterNumber}章`,
+  keyEvents: '主角发现证据并付出代价。',
+  characters: ['主角'],
+  // 章纲规则闸门要求每章带【属性账】（心识/体魄/力量/敏捷，顺序固定）
+  userGuidance: `【属性账】进=${[9 + chapterNumber, chapterNumber, chapterNumber, chapterNumber].join('/')}；出=${
+    [10 + chapterNumber, chapterNumber + 1, chapterNumber + 1, chapterNumber + 1].join('/')
+  }`,
+})
 const callbacks = { log: vi.fn(), setProgress: vi.fn(), appendText: vi.fn() }
 const context = () => ({ data: { architecture: '已经完成的全书架构' } as Record<string, unknown>, cancelled: false })
 beforeEach(() => {

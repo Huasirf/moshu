@@ -1,9 +1,9 @@
-import type { Meta, StoryObj } from '@storybook/react' // eslint-disable-line storybook/no-renderer-packages
+﻿import type { Meta, StoryObj } from '@storybook/react' // eslint-disable-line storybook/no-renderer-packages
 import { toast } from '../components/ui/Toast'
 import { Button } from '../components/ui/Button'
 
 const meta = {
-  title: 'Vela UI/Toast',
+  title: 'MoShu UI/Toast',
   parameters: {
     docs: {
       description: {

@@ -1,13 +1,13 @@
-/**
- * 模型配置存储（~/.vela/models.json）
+﻿/**
+ * 模型配置存储（~/.moshu/models.json）
  *
  * - API Key 经 Electron safeStorage 加密后存为 apiKeyEnc（Windows 上由 DPAPI 保护的密钥加密），文件里不留明文；
  *   系统不支持加密时（例如部分 Linux 桌面没有密钥环）退回明文保存并告警。
  * - 旧版的明文 Key 在第一次读取时自动迁移为加密存储，并同步覆盖 .bak 里的明文副本。
  * - 渲染进程只拿到打码后的 Key（••••••••+末 4 位）。保存 / 测试连接 / 文生图时收到打码值，表示「沿用已保存的 Key」；
- *   但只有接口地址未改时才沿用，否则拿到 velaAPI 的页面就能让主进程把已保存的 Key 发往任意地址。
+ *   但只有接口地址未改时才沿用，否则拿到 moshuAPI 的页面就能让主进程把已保存的 Key 发往任意地址。
  *
- * 注意：加密密钥与当前系统账户（及应用数据目录）绑定。把 ~/.vela 拷到另一台电脑或另一个账户后 Key 无法解密，
+ * 注意：加密密钥与当前系统账户（及应用数据目录）绑定。把 ~/.moshu 拷到另一台电脑或另一个账户后 Key 无法解密，
  * 界面上会显示为未填写，重新填写即可。
  */
 import { safeStorage } from 'electron'
@@ -64,7 +64,7 @@ export function createModelStore(deps: { filePath: string; cipher: KeyCipher }) 
       try {
         return cipher.decrypt(m.apiKeyEnc)
       } catch {
-        console.warn(`[Vela Models] 模型「${m.name || m.id}」的 API Key 无法解密（系统账户或应用数据目录可能已变更），需要重新填写`)
+        console.warn(`[MoShu Models] 模型「${m.name || m.id}」的 API Key 无法解密（系统账户或应用数据目录可能已变更），需要重新填写`)
         return ''
       }
     }
@@ -74,7 +74,7 @@ export function createModelStore(deps: { filePath: string; cipher: KeyCipher }) 
   const encodeKey = (key: string): Pick<StoredModel, 'apiKey' | 'apiKeyEnc'> => {
     if (!key) return { apiKey: '' }
     if (cipher.isAvailable()) return { apiKey: '', apiKeyEnc: cipher.encrypt(key) }
-    console.warn('[Vela Models] 系统不支持安全存储，API Key 只能以明文保存在 models.json')
+    console.warn('[MoShu Models] 系统不支持安全存储，API Key 只能以明文保存在 models.json')
     return { apiKey: key }
   }
 
@@ -103,7 +103,7 @@ export function createModelStore(deps: { filePath: string; cipher: KeyCipher }) 
     try {
       fs.copyFileSync(filePath, `${filePath}.bak`)
     } catch { /* 备份覆盖失败不影响主文件 */ }
-    console.log('[Vela Models] 已把 models.json 中的明文 API Key 迁移为加密存储')
+    console.log('[MoShu Models] 已把 models.json 中的明文 API Key 迁移为加密存储')
     return migrated
   }
 
@@ -111,7 +111,7 @@ export function createModelStore(deps: { filePath: string; cipher: KeyCipher }) 
    * 渲染进程提交的模型配置 → 实际使用的配置。
    * Key 为打码值时换成已保存的 Key；前提是接口地址未改，否则要求重新填写。
    */
-  const resolveIncoming = (incoming: ModelProfile): ModelProfile => {
+  const resolveIncoming = <T extends Pick<ModelProfile, 'id' | 'baseUrl' | 'apiKey'>>(incoming: T): T => {
     if (!isMaskedApiKey(incoming.apiKey)) return incoming
     const stored = load().find((m) => m.id === incoming.id)
     if (!stored) return { ...incoming, apiKey: '' }
@@ -164,5 +164,5 @@ const electronCipher: KeyCipher = {
   decrypt: (encoded) => safeStorage.decryptString(Buffer.from(encoded, 'base64')),
 }
 
-/** 应用使用的模型配置存储（~/.vela/models.json + safeStorage） */
+/** 应用使用的模型配置存储（~/.moshu/models.json + safeStorage） */
 export const modelStore = createModelStore({ filePath: MODELS_CONFIG_PATH, cipher: electronCipher })

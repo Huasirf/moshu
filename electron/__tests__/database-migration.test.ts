@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+﻿import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -15,7 +15,7 @@ describe('项目数据库 schema 迁移', () => {
   let projectDir: string
 
   beforeEach(() => {
-    projectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'vela-migrate-'))
+    projectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moshu-migrate-'))
   })
 
   afterEach(() => {
@@ -52,7 +52,7 @@ describe('项目数据库 schema 迁移', () => {
     expect((db.prepare(`SELECT COUNT(*) AS n FROM canon_facts`).get() as { n: number }).n).toBe(1)
     expect(indexNames()).toContain('idx_canon_facts_unique')
     const backups = fs.readdirSync(getBackupDir(projectDir))
-    expect(backups.some((f) => f.startsWith('vela-pre-migration-') && f.endsWith('.db'))).toBe(true)
+    expect(backups.some((f) => f.startsWith('moshu-pre-migration-') && f.endsWith('.db'))).toBe(true)
   })
 
   it('打开项目后记录当前项目路径，关闭后清空', () => {
@@ -88,7 +88,65 @@ describe('项目数据库 schema 迁移', () => {
     getProjectDb()!.pragma(`user_version = ${SCHEMA_VERSION + 1}`)
     closeProjectDatabase()
 
-    expect(() => initProjectDatabase(projectDir)).toThrow(/高于当前 Vela 支持的版本/)
+    expect(() => initProjectDatabase(projectDir)).toThrow(/高于当前 墨枢 支持的版本/)
     expect(getProjectDb()).toBeNull()
+  })
+
+  it('v4 → v5：同一章只保留最新定稿，其余降级为 archived', () => {
+    initProjectDatabase(projectDir)
+    let db = getProjectDb()!
+    const insertContent = db.prepare(`INSERT INTO contents (body) VALUES (?)`)
+    const insertDraft = db.prepare(`INSERT INTO drafts (chapter_number, version, status, content_id, word_count) VALUES (?, ?, ?, ?, 100)`)
+    for (const version of [1, 2, 3]) {
+      const contentId = Number(insertContent.run(`v${version}`).lastInsertRowid)
+      insertDraft.run(2, version, 'finalized', contentId)
+    }
+    db.pragma('user_version = 4')
+    closeProjectDatabase()
+
+    initProjectDatabase(projectDir)
+    db = getProjectDb()!
+    const rows = db.prepare(`SELECT version, status FROM drafts WHERE chapter_number = 2 ORDER BY version`).all() as Array<{ version: number; status: string }>
+    expect(rows).toEqual([
+      { version: 1, status: 'archived' },
+      { version: 2, status: 'archived' },
+      { version: 3, status: 'finalized' },
+    ])
+    expect(Number(db.pragma('user_version', { simple: true }))).toBe(SCHEMA_VERSION)
+  })
+
+  it('v1 → v2：老库补齐 P1 列与表，已有蓝图数据不丢，重复打开幂等', () => {
+    initProjectDatabase(projectDir)
+    let db = getProjectDb()!
+    db.prepare(`INSERT INTO blueprints (chapter_number, title) VALUES (1, '第一章')`).run()
+    // 把 P1 新增列删掉，模拟 v1 老库
+    for (const col of ['asset_refs', 'scenes_json', 'words_target', 'status', 'beat_tags']) {
+      db.exec(`ALTER TABLE blueprints DROP COLUMN ${col}`)
+    }
+    db.pragma('user_version = 1')
+    closeProjectDatabase()
+
+    initProjectDatabase(projectDir)
+    db = getProjectDb()!
+    expect(Number(db.pragma('user_version', { simple: true }))).toBe(SCHEMA_VERSION)
+    const columns = (db.prepare('PRAGMA table_info(blueprints)').all() as Array<{ name: string }>).map((c) => c.name)
+    expect(columns).toEqual(expect.arrayContaining(['asset_refs', 'scenes_json', 'words_target', 'status', 'beat_tags']))
+    const row = db.prepare('SELECT * FROM blueprints WHERE chapter_number = 1').get() as Record<string, unknown>
+    expect(row.title).toBe('第一章')
+    expect(row.asset_refs).toBe('[]')
+    expect(row.scenes_json).toBe('[]')
+    expect(row.words_target).toBe(0)
+    expect(row.status).toBe('planned')
+    const tables = (db.prepare(`SELECT name FROM sqlite_master WHERE type='table'`).all() as Array<{ name: string }>)
+      .map((t) => t.name)
+    expect(tables).toEqual(expect.arrayContaining([
+      'canon_items', 'attribute_defs', 'attribute_values', 'entity_relations',
+      'review_findings', 'chapter_pipeline', 'style_profiles',
+    ]))
+
+    // 已在 v2 的库再次打开：迁移整段跳过，不报错
+    closeProjectDatabase()
+    initProjectDatabase(projectDir)
+    expect(Number(getProjectDb()!.pragma('user_version', { simple: true }))).toBe(SCHEMA_VERSION)
   })
 })

@@ -1,9 +1,9 @@
-import type { Meta, StoryObj } from '@storybook/react' // eslint-disable-line storybook/no-renderer-packages
+﻿import type { Meta, StoryObj } from '@storybook/react' // eslint-disable-line storybook/no-renderer-packages
 import { Switch } from '../components/ui/Switch'
 import { useState } from 'react'
 
 const meta = {
-  title: 'Vela UI/Switch',
+  title: 'MoShu UI/Switch',
   component: Switch,
   tags: ['autodocs'],
   argTypes: {

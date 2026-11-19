@@ -14,6 +14,7 @@ import { useEditorStore } from '../../stores/editor-store'
 import { useWorkflowStore } from '../../stores/workflow-store'
 import type { AgentMode } from '../../stores/agent-store'
 import { toolRegistry } from './tool-registry'
+import { buildSkillRoutingPrompt } from './skill-registry'
 
 // ===== 上下文构建 =====
 
@@ -22,22 +23,26 @@ import { toolRegistry } from './tool-registry'
  *
  * 这是 Agent 每次对话时的系统提示词入口。
  * 将项目上下文、编辑器状态、可用 Tool 列表整合为一份完整的系统提示。
+ * userIntent 用于技能路由（P2-7）：命中时附加该技能的允许工具与执行要点。
  */
-export function buildAgentSystemPrompt(mode: AgentMode): string {
+export function buildAgentSystemPrompt(mode: AgentMode, userIntent?: string): string {
   const sections: string[] = []
 
   // 1. Agent 身份与行为指导
   sections.push(buildIdentityPrompt(mode))
 
-  // 2. L0 — 始终注入的项目上下文
+  // 2. 技能路由表（P2-7）
+  sections.push(buildSkillRoutingPrompt(userIntent))
+
+  // 3. L0 — 始终注入的项目上下文
   const l0 = buildL0ProjectContext()
   if (l0) sections.push(l0)
 
-  // 3. L1 — 编辑器感知上下文
+  // 4. L1 — 编辑器感知上下文
   const l1 = buildL1EditorContext()
   if (l1) sections.push(l1)
 
-  // 4. Tool 系统提示词
+  // 5. Tool 系统提示词
   const toolPrompt = toolRegistry.generateToolPrompt()
   if (toolPrompt) sections.push(toolPrompt)
 
@@ -52,9 +57,9 @@ function buildIdentityPrompt(mode: AgentMode): string {
     ? '当前处于 Planning 模式：你可以先规划再执行，适合复杂的多步骤任务。请先分析需求，制定方案，再逐步执行。'
     : '当前处于 Fast 模式：你直接高效地完成任务，适合简单快速的操作。'
 
-  return `# Vela AI 创作助手
+  return `# 墨枢 AI 创作助手
 
-你是 Vela 智能创作助手，专注于帮助作家进行长篇小说创作。
+你是墨枢（MoShu）智能创作助手，专注于帮助作家进行长篇小说创作。
 
 ${modeDesc}
 
@@ -78,6 +83,13 @@ ${modeDesc}
 8. 后续对话优先尊重作者已经明确的选择，必要时通过 story_changes 回看调整记录；记录反映当时意图，当前正文仍以 read_story 的结果为准。
 9. 架构、角色、蓝图、正文是数据库资源，使用 revise_story；禁止为这些资源生成假 Markdown 文件或用 write_file 绕开内容接口。旧对话中的 start_workflow 只曾打开面板，并未执行任务；它已停用，不要再次调用、声称工作流已经启动或把明确的修改请求交回作者手动操作。
 10. 整章改写首选 rewrite_draft：读取原文后提交简洁的 instruction 和读取版本，由工具内部真正调用写作模型、改稿并保存；不要在主对话里反复起草全文。也可直接提交完整 content；禁止占位符。转换视角还要读取 core 的 narrativePov（枚举 first_person / third_limited / third_omniscient / multi_pov），与 writingStyle 一起调整，防止下次生成沿用旧视角。转换叙述视角时保留事件、人物、数字、对话与章末钩子；第三人称限制视角只写视角人物所知所感，不能机械替换对话里的“我”。长正文必须读完 nextOffset；改完再读取核对。全文任务要列出全部现有章节，逐章处理并汇报实际覆盖范围。未生成章节通过文风约束后续创作，不能声称已改了不存在的正文。回复只写面向作者的中文进展、问题或结论，不输出自言自语或英文分析。
+
+## 改动计划（Plan → Preview → Confirm → Act）
+1. 任何会改动项目数据的请求，先给出结构化改动计划：目标、涉及实体、受影响章节、风险等级。
+2. 计划中的每一步对应一个实体操作（建/改/删资产、改蓝图、改角色、改关系、设属性、推进章节流水线），不要用「写某文件」描述。
+3. 等作者确认后再执行；作者未确认时不得调用任何写入工具，数据库必须保持零改动。
+4. 只读分析、创作建议、假设性讨论不需要计划，直接回答。
+5. 作者明确要求「直接改、不用确认」时，仍先输出一行计划摘要再执行。
 
 ## 通用要求
 - 使用中文回复

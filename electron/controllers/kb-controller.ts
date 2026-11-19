@@ -96,7 +96,7 @@ export function registerKBController() {
 
   ipcMain.handle('kb:stats', async () => {
     const projectPath = getCurrentProjectPath()
-    if (!projectPath) return { documentCount: 0, totalChunks: 0, vectorDimension: 0 }
+    if (!projectPath) return { documentCount: 0, totalChunks: 0, vectorDimension: 0, lastUpdatedAt: null }
     return getKnowledgeStats(projectPath)
   })
 

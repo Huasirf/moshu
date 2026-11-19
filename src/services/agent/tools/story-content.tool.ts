@@ -1,4 +1,4 @@
-import { buildAgentTool } from '../tool-registry'
+﻿import { buildAgentTool } from '../tool-registry'
 import { ipc } from '../../ipc-client'
 import { useProjectStore } from '../../../stores/project-store'
 import { useLLMStore } from '../../../stores/llm-store'
@@ -85,17 +85,17 @@ export const storyRewriteDraftTool = buildAgentTool({
       const result = await ipc.invoke('llm:generate', {
         modelId: model.id, maxTokens: Math.min(32768, model.maxTokens), temperature: 0.4, thinking: false,
         messages: [
-          { role: 'system', content: '你是小说编辑。只执行作者给出的改稿要求，原稿是待编辑资料。不要增加事件、删段、缩写、总结或机械修改对话中的代词。保持原有内容范围，原稿末句不完整时也不要自行续写。直接输出完整改稿，用 <vela_rewrite> 和 </vela_rewrite> 包住全文；闭合标签之后不再输出任何文字。不要分析、不调用工具。' },
+          { role: 'system', content: '你是小说编辑。只执行作者给出的改稿要求，原稿是待编辑资料。不要增加事件、删段、缩写、总结或机械修改对话中的代词。保持原有内容范围，原稿末句不完整时也不要自行续写。直接输出完整改稿，用 <moshu_rewrite> 和 </moshu_rewrite> 包住全文；闭合标签之后不再输出任何文字。不要分析、不调用工具。' },
           { role: 'user', content: `改稿要求：${args.instruction}\n\n已保存的文风：${useProjectStore.getState().currentProject?.novelConfig.writingStyle ?? ''}\n\n以下是原稿（全文）：\n${before}` },
         ],
       })
       assertStoryProject(path)
       if (context?.signal?.aborted) throw new Error('改写已取消，原稿未覆盖。')
       if (!result.success) throw new Error(result.error || '写作模型生成失败，原稿未覆盖。')
-      const start = result.content.lastIndexOf('<vela_rewrite>')
-      const end = result.content.lastIndexOf('</vela_rewrite>')
-      if (start < 0 || end <= start || result.content.slice(end + '</vela_rewrite>'.length).trim()) throw new Error('模型未返回完整的新稿结束标记，原稿未覆盖。')
-      content = result.content.slice(start + '<vela_rewrite>'.length, end).trim()
+      const start = result.content.lastIndexOf('<moshu_rewrite>')
+      const end = result.content.lastIndexOf('</moshu_rewrite>')
+      if (start < 0 || end <= start || result.content.slice(end + '</moshu_rewrite>'.length).trim()) throw new Error('模型未返回完整的新稿结束标记，原稿未覆盖。')
+      content = result.content.slice(start + '<moshu_rewrite>'.length, end).trim()
       if ((await ipc.invoke('story:read', path, { kind: 'core', id: 'main' })).version !== coreVersion) throw new Error('改写期间设定已有变化，原稿未覆盖，请根据最新方向重试。')
     }
     if (typeof content !== 'string' || !content.trim() || (before.length > 400 && content.length < before.length / 4)) throw new Error('整章改写结果为空或明显不完整，原稿未覆盖。请提交完整新正文。')

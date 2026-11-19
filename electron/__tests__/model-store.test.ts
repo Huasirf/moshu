@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+﻿import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -45,7 +45,7 @@ describe('model-store：API Key 加密存储与打码下发', () => {
   let file: string
 
   beforeEach(() => {
-    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vela-models-'))
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'moshu-models-'))
     file = path.join(dir, 'models.json')
   })
 

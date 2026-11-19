@@ -1,4 +1,4 @@
-/* eslint-disable react-refresh/only-export-components -- 章节标题缓存需与组件同文件导出，供保存后清缓存 */
+﻿/* eslint-disable react-refresh/only-export-components -- 章节标题缓存需与组件同文件导出，供保存后清缓存 */
 /**
  * ManuscriptGroup — 正文章节折叠组（已定稿章节列表）
  */
@@ -32,9 +32,9 @@ export function clearChapterTitleCache(filePath?: string) {
  */
 async function readTitleFromContent(filePath: string, fallback: string): Promise<string> {
   let fileContent = ''
-  if (filePath.startsWith('vela://')) {
-    const { readVelaContent } = await import('../../../services/vela-protocol')
-    fileContent = await readVelaContent(filePath)
+  if (filePath.startsWith('moshu://')) {
+    const { readMoshuContent } = await import('../../../services/moshu-protocol')
+    fileContent = await readMoshuContent(filePath)
   } else {
     const result = await ipc.invoke('fs:read-file', filePath)
     if (result.success) fileContent = result.content

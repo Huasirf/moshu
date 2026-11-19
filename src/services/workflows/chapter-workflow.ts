@@ -1,6 +1,9 @@
-import type { WorkflowDefinition } from '../../stores/workflow-store'
+﻿import type { WorkflowDefinition } from '../../stores/workflow-store'
 import type { DraftMeta } from '../draft-index'
+import type { ChapterScene } from '../blueprint-scenes'
+import type { ChapterBlueprint } from './directory-workflow'
 import i18n from '../../i18n'
+import { getBatchRange, getBatchResults, resetBatchReport, summarizeBatch } from './batch-report'
 
 import type { DraftStatus } from '../../shared/draft-status'
 
@@ -27,6 +30,23 @@ export interface ChapterInfo {
    * 缺省时回退到小说配置的「每章字数」。
    */
   wordsTarget?: number
+  /**
+   * P1：本章引用的资产（来自蓝图 asset_refs，id 已解析为可读名称）。
+   * 仅注入 prompt，暂不校验实际是否出现。
+   */
+  assetRefs?: ChapterAssetRef[]
+  /**
+   * P1：本章场景拆解（来自蓝图 scenes）。
+   * 有值时写稿 prompt 会额外注入「按场推进 + 每场预算」的强约束。
+   */
+  scenes?: ChapterScene[]
+}
+
+/** 注入 prompt 的资产引用（type/name/expect） */
+export interface ChapterAssetRef {
+  type: string
+  name: string
+  expect: string
 }
 
 export interface RefineOnlyParams {
@@ -61,6 +81,8 @@ export interface FinalizeOnlyParams {
   chapterTitle: string
   draftPath: string
   draftContent: string
+  /** 作者已在确认弹窗中显式豁免 warning 级审稿 finding（P3-5） */
+  acceptWarnings?: boolean
 }
 
 // ==========================================
@@ -68,18 +90,18 @@ export interface FinalizeOnlyParams {
 // ==========================================
 
 export function getDraftDir(_projectPath: string, chapterNumber: number): string {
-  return `vela://draft/ch${chapterNumber}`
+  return `moshu://draft/ch${chapterNumber}`
 }
 
 export function getDraftPath(_projectPath: string, chapterNumber: number, version: number): string {
-  return `vela://draft/ch${chapterNumber}/v${version}`
+  return `moshu://draft/ch${chapterNumber}/v${version}`
 }
 
 export async function parseDraftMeta(filePath: string): Promise<DraftMeta | null> {
   const { ipc } = await import('../ipc-client')
 
-  // 优先处理 vela://draft/{id} 纯数字 ID 格式（DB 化后的标准路径）
-  const idMatch = filePath.match(/^vela:\/\/(?:draft|manuscript)\/(\d+)$/)
+  // 优先处理 moshu://draft/{id} 纯数字 ID 格式（DB 化后的标准路径）
+  const idMatch = filePath.match(/^moshu:\/\/(?:draft|manuscript)\/(\d+)$/)
   if (idMatch) {
     const draftId = parseInt(idMatch[1])
     const dbMeta = await ipc.invoke('db:draft-get-meta', draftId)
@@ -89,11 +111,11 @@ export async function parseDraftMeta(filePath: string): Promise<DraftMeta | null
       status: dbMeta.status as DraftStatus,
       source: dbMeta.source as 'write' | 'rewrite',
       fileName: `draft_v${dbMeta.version}.md`,
-      filePath: `vela://draft/${dbMeta.id}`,
+      filePath: `moshu://draft/${dbMeta.id}`,
     } as unknown as DraftMeta
   }
 
-  // 兼容旧格式 draft_v(\d+).md 和 vela://draft/ch{N}/v{V}
+  // 兼容旧格式 draft_v(\d+).md 和 moshu://draft/ch{N}/v{V}
   const versionMatch = filePath.match(/v(\d+)(?:\.md)?$/)
   if (!versionMatch) return null
   const version = parseInt(versionMatch[1])
@@ -236,6 +258,7 @@ export function createFinalizeWorkflow(params: FinalizeOnlyParams): WorkflowDefi
             draftContent: params.draftContent,
             chapterNumber: params.chapterNumber,
             chapterInfo,
+            acceptWarnings: params.acceptWarnings,
           })
           return cmd.execute({ step, context, callbacks })
         },
@@ -257,7 +280,7 @@ export function createFinalizeWorkflow(params: FinalizeOnlyParams): WorkflowDefi
             const bp = await ipc.invoke('db:blueprint-get', params.chapterNumber)
             if (bp?.title) displayTitle = bp.title
           } catch { /* 蓝图读取失败时回退到 params */ }
-          const dbPath = `vela://manuscript/${draftMeta.id}`
+          const dbPath = `moshu://manuscript/${draftMeta.id}`
           useEditorStore.getState().openFile({
             id: dbPath,
             name: t('generateDraft.chapterNumberTitle', { chapter: params.chapterNumber, title: displayTitle }),
@@ -448,6 +471,14 @@ export interface BatchGenerateWorkflowParams {
   rollingBlueprint?: boolean
   /** 按任务派模型（为空走默认模型）：蓝图刷新/写稿/审校/去AI味 */
   models?: { blueprint?: string; write?: string; review?: string; deaify?: string }
+  /** 单章失败策略：continue（默认，记录后继续下一章）| stop */
+  onChapterError?: 'continue' | 'stop'
+  /** 正文完整性守卫（默认开启） */
+  enableIntegrityGuard?: boolean
+  /** 字数分档门禁（默认开启） */
+  enableWordGate?: boolean
+  /** 写稿前场景拆解（默认开启） */
+  enableScenePlanning?: boolean
 }
 
 /**
@@ -461,6 +492,9 @@ export function createBatchGenerateWorkflow(params: BatchGenerateWorkflowParams)
   const rolling = params.rollingBlueprint !== false
   const stepPrefix = rolling ? '刷新蓝图→' : ''
   const stepSuffix = `${params.autoReview ? '→审校闭环' : ''}${params.deaify ? '→去AI味' : ''}`
+
+  // 单章失败不再中断整批：台账按批次清空，末尾统一汇总
+  resetBatchReport(start, end)
 
   const steps: WorkflowDefinition['steps'] = []
   for (let n = start; n <= end; n++) {
@@ -480,16 +514,70 @@ export function createBatchGenerateWorkflow(params: BatchGenerateWorkflowParams)
           resume: params.resume,
           rollingBlueprint: rolling,
           models: params.models,
+          onChapterError: params.onChapterError ?? 'continue',
+          enableIntegrityGuard: params.enableIntegrityGuard,
+          enableWordGate: params.enableWordGate,
+          enableScenePlanning: params.enableScenePlanning,
         })
         return cmd.execute({ step, context, callbacks })
       },
     })
   }
 
+  // 批次汇总：成功/偏长/失败/跳过清单，便于决定重跑哪些章
+  steps.push({
+    name: '批次汇总',
+    description: '输出每章字数、审稿轮数与失败清单',
+    executor: async (_step, _context, callbacks) => {
+      const summary = summarizeBatch(getBatchResults(), getBatchRange())
+      summary.lines.forEach((line) => callbacks.log(line))
+      callbacks.log(summary.text.split('\n')[0])
+      return summary.text
+    },
+  })
+
   return {
     type: 'batch_generate',
     title: `📚 批量生成 第${start}-${end}章`,
     steps,
     onComplete: { mode: 'open', message: `📚 批量生成结束（第${start}-${end}章）` },
+  }
+}
+
+/**
+ * 单章场景拆解工作流（章纲编辑器里的「AI 拆解场景」按钮）
+ * 拆解结果直接写回蓝图 scenes，编辑器收到完成事件后自动刷新。
+ */
+export function createPlanScenesWorkflow(bp: ChapterBlueprint): WorkflowDefinition {
+  const n = bp.chapterNumber
+  const info: ChapterInfo = {
+    chapterNumber: n,
+    title: bp.title || `第${n}章`,
+    role: bp.role || '',
+    purpose: bp.purpose || '',
+    characters: Array.isArray(bp.characters) ? bp.characters : [],
+    keyEvents: bp.keyEvents || '',
+    suspenseHook: bp.suspenseHook || undefined,
+    userGuidance: bp.userGuidance || undefined,
+    wordsTarget: bp.wordsTarget || undefined,
+  }
+  return {
+    type: 'plan_scenes',
+    title: `🗂 第${n}章场景拆解`,
+    steps: [
+      {
+        name: `第${n}章场景拆解`,
+        description: '按本章蓝图拆成 3–5 场，并分配字数预算',
+        executor: async (step, context, callbacks) => {
+          const { PlanScenesCommand } = await import('./commands/plan-scenes.command')
+          const cmd = new PlanScenesCommand(n, info)
+          await cmd.execute({ step, context, callbacks })
+          return cmd.result
+            ? `已拆解 ${cmd.result.scenes.length} 场，预算 ${cmd.result.budget} 字`
+            : '未产出可用场景表'
+        },
+      },
+    ],
+    onComplete: { mode: 'open', message: `🗂 第${n}章场景拆解结束` },
   }
 }

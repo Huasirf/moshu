@@ -1,4 +1,4 @@
-import { BaseWorkflowCommand, CommandExecuteParams } from './base-command'
+﻿import { BaseWorkflowCommand, CommandExecuteParams } from './base-command'
 import { ReviewChapterCommand } from './review-chapter.command'
 import { RefineFromReviewCommand } from './refine-from-review.command'
 import { WorkflowCancelledError } from '../workflow-errors'
@@ -191,7 +191,7 @@ export class AutoReviewLoopCommand extends BaseWorkflowCommand<string> {
       }
       await ipc.invoke('db:revision-mark-merged', revisionId, created.id)
 
-      currentPath = `vela://draft/${created.id}`
+      currentPath = `moshu://draft/${created.id}`
       currentContent = refinedContent
       currentBlock = null
       revised++
@@ -245,7 +245,7 @@ export class AutoReviewLoopCommand extends BaseWorkflowCommand<string> {
           chapterNumber: this.params.chapterNumber,
         })
       }
-      // 产生了新版本才打开最终草稿（DraftEditor 通过 vela://draft/ 前缀路由）；最后打开使其激活
+      // 产生了新版本才打开最终草稿（DraftEditor 通过 moshu://draft/ 前缀路由）；最后打开使其激活
       if (revised > 0) {
         store.openFile({
           id: currentPath,

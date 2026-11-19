@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+﻿import { describe, it, expect } from 'vitest'
 import {
   requestEditorReveal, takeEditorReveal, subscribeEditorReveal, resolveRevealRange, REVEAL_TTL_MS,
 } from '../editor-reveal'
@@ -38,33 +38,33 @@ describe('resolveRevealRange', () => {
 
 describe('定位请求登记与取走', () => {
   it('取走即删除，过期请求丢弃', () => {
-    requestEditorReveal({ filePath: 'vela://draft/1', from: 1, to: 2, text: 'a' }, 1000)
-    expect(takeEditorReveal('vela://draft/1', 1500)).toEqual({ filePath: 'vela://draft/1', from: 1, to: 2, text: 'a' })
-    expect(takeEditorReveal('vela://draft/1', 1500)).toBeNull()
+    requestEditorReveal({ filePath: 'moshu://draft/1', from: 1, to: 2, text: 'a' }, 1000)
+    expect(takeEditorReveal('moshu://draft/1', 1500)).toEqual({ filePath: 'moshu://draft/1', from: 1, to: 2, text: 'a' })
+    expect(takeEditorReveal('moshu://draft/1', 1500)).toBeNull()
 
-    requestEditorReveal({ filePath: 'vela://draft/2', from: 0, to: 1, text: 'b' }, 1000)
-    expect(takeEditorReveal('vela://draft/2', 1000 + REVEAL_TTL_MS + 1)).toBeNull()
+    requestEditorReveal({ filePath: 'moshu://draft/2', from: 0, to: 1, text: 'b' }, 1000)
+    expect(takeEditorReveal('moshu://draft/2', 1000 + REVEAL_TTL_MS + 1)).toBeNull()
     // 过期的也已清掉，不会残留到以后
-    expect(takeEditorReveal('vela://draft/2', 1000)).toBeNull()
+    expect(takeEditorReveal('moshu://draft/2', 1000)).toBeNull()
   })
 
   it('同一文件只保留最新请求，并通知订阅者目标路径', () => {
     const seen: string[] = []
     const unsubscribe = subscribeEditorReveal(p => seen.push(p))
-    requestEditorReveal({ filePath: 'vela://manuscript/3', from: 0, to: 1, text: 'x' })
-    requestEditorReveal({ filePath: 'vela://manuscript/3', from: 5, to: 6, text: 'y' })
+    requestEditorReveal({ filePath: 'moshu://manuscript/3', from: 0, to: 1, text: 'x' })
+    requestEditorReveal({ filePath: 'moshu://manuscript/3', from: 5, to: 6, text: 'y' })
     unsubscribe()
-    requestEditorReveal({ filePath: 'vela://manuscript/4', from: 0, to: 1, text: 'z' })
+    requestEditorReveal({ filePath: 'moshu://manuscript/4', from: 0, to: 1, text: 'z' })
 
-    expect(seen).toEqual(['vela://manuscript/3', 'vela://manuscript/3'])
-    expect(takeEditorReveal('vela://manuscript/3')?.text).toBe('y')
-    expect(takeEditorReveal('vela://manuscript/4')?.text).toBe('z')
+    expect(seen).toEqual(['moshu://manuscript/3', 'moshu://manuscript/3'])
+    expect(takeEditorReveal('moshu://manuscript/3')?.text).toBe('y')
+    expect(takeEditorReveal('moshu://manuscript/4')?.text).toBe('z')
   })
 
   it('订阅者在回调里取走请求后，挂载时不会重复处理', () => {
     const unsubscribe = subscribeEditorReveal(p => { takeEditorReveal(p) })
-    requestEditorReveal({ filePath: 'vela://draft/9', from: 0, to: 1, text: 'q' })
+    requestEditorReveal({ filePath: 'moshu://draft/9', from: 0, to: 1, text: 'q' })
     unsubscribe()
-    expect(takeEditorReveal('vela://draft/9')).toBeNull()
+    expect(takeEditorReveal('moshu://draft/9')).toBeNull()
   })
 })

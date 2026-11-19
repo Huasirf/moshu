@@ -172,6 +172,12 @@ export function validateCanonTimelineEventInput(v: unknown, path = 'event') {
     timeFlow: checkEnum(v.timeFlow, `${path}.timeFlow`, VALID_TIMEFLOW),
     summary: checkStringLength(v.summary, `${path}.summary`, { max: 500 }),
     impact: checkOptional(v.impact, `${path}.impact`, (s, p) => checkStringLength(s, p, { max: 500 })) ?? '',
+    absoluteTime: checkOptional(v.absoluteTime, `${path}.absoluteTime`, (s, p) => checkStringLength(s, p, { max: 40 })) ?? '',
+    duration: checkOptional(v.duration, `${path}.duration`, (s, p) => checkStringLength(s, p, { max: 100 })) ?? '',
+    source: checkOptional(v.source, `${path}.source`, (s, p) => checkEnum(s, p, ['canon', 'finalize_extract', 'manual'] as const)) ?? 'canon',
+    confidence: checkOptional(v.confidence, `${path}.confidence`, (n, p) => checkNumberRange(n, p, { min: 0, max: 1 })) ?? 1,
+    evidence: checkOptional(v.evidence, `${path}.evidence`, (s, p) => checkStringLength(s, p, { max: MAX_EVIDENCE_LEN })) ?? '',
+    status: checkOptional(v.status, `${path}.status`, (s, p) => checkEnum(s, p, ['confirmed', 'pending', 'rejected'] as const)) ?? 'confirmed',
   }
 }
 
@@ -341,6 +347,147 @@ export function validateChapterSearchArgs(v: unknown, path = 'search') {
     return { caseSensitive: flag('caseSensitive'), finalizedOnly: flag('finalizedOnly') }
   }) ?? { caseSensitive: false, finalizedOnly: false }
   return { query, options }
+}
+
+// ============================================================
+// P1 数据层：资产 / 属性 / 关系 / 流水线 / 风格 / 审稿台账
+// ============================================================
+
+export const VALID_ASSET_TYPES = [
+  'character', 'item', 'location', 'skill', 'faction', 'secret', 'number',
+] as const
+export const VALID_ASSET_STATUSES = ['active', 'inactive', 'archived'] as const
+export const VALID_ATTRIBUTE_VALUE_TYPES = ['number', 'enum', 'text'] as const
+export const VALID_ATTRIBUTE_PHASES = ['before', 'after'] as const
+export const VALID_RELATION_STATUSES = ['active', 'broken', 'paused', 'ended'] as const
+export const VALID_REVIEW_SEVERITIES = ['error', 'warning', 'info'] as const
+export const VALID_FINDING_STATUSES = ['open', 'fixed', 'ignored'] as const
+
+const MAX_ASSET_NAME = 200
+const MAX_ASSET_TEXT = 20_000
+const MAX_TYPE_DATA_LEN = 100_000
+const MAX_TAG_LEN = 50
+const MAX_TAGS = 50
+
+const checkNonNegativeInteger = (v: unknown, path: string) =>
+  checkNumberRange(v, path, { min: 0, max: 1e9, integer: true })
+
+const checkOptionalBoolean = (v: unknown, path: string) =>
+  checkOptional(v, path, (b, p) => {
+    if (!isBoolean(b)) throw new ValidationError(p, `expected boolean, got ${typeof b}`)
+    return b
+  })
+
+const checkStringArray = (v: unknown, path: string, maxItemLen: number, maxLength = MAX_TAGS) =>
+  checkArray(v, path, (item, p) => checkStringLength(item, p, { min: 0, max: maxItemLen }), { maxLength })
+
+/** db:asset-upsert 入参 */
+export function validateAssetInput(v: unknown, path = 'asset') {
+  if (!isObject(v)) throw new ValidationError(path, 'expected object')
+  const typeData = checkOptional(v.typeData, `${path}.typeData`, (t, p) => {
+    if (!isObject(t)) throw new ValidationError(p, 'expected object')
+    if (JSON.stringify(t).length > MAX_TYPE_DATA_LEN) throw new ValidationError(p, 'too large')
+    return t as Record<string, unknown>
+  }) ?? {}
+  return {
+    id: checkOptional(v.id, `${path}.id`, (n, p) => checkNumberRange(n, p, { min: 1, max: 1e9, integer: true })),
+    entityType: checkEnum(v.entityType, `${path}.entityType`, VALID_ASSET_TYPES),
+    name: checkStringLength(v.name, `${path}.name`, { min: 1, max: MAX_ASSET_NAME }).trim(),
+    summary: checkOptional(v.summary, `${path}.summary`, (s, p) => checkStringLength(s, p, { max: MAX_ASSET_TEXT })) ?? '',
+    description: checkOptional(v.description, `${path}.description`, (s, p) => checkStringLength(s, p, { max: MAX_ASSET_TEXT })) ?? '',
+    status: checkOptional(v.status, `${path}.status`, (s, p) => checkEnum(s, p, VALID_ASSET_STATUSES)),
+    firstChapter: checkOptional(v.firstChapter, `${path}.firstChapter`, checkNonNegativeInteger),
+    lastChapter: checkOptional(v.lastChapter, `${path}.lastChapter`, checkNonNegativeInteger),
+    tags: checkOptional(v.tags, `${path}.tags`, (t, p) => checkStringArray(t, p, MAX_TAG_LEN)) ?? [],
+    typeData,
+  }
+}
+
+/** db:attribute-def-upsert 入参 */
+export function validateAttributeDefInput(v: unknown, path = 'def') {
+  if (!isObject(v)) throw new ValidationError(path, 'expected object')
+  const minValue = checkOptional(v.minValue, `${path}.minValue`, (n, p) => {
+    if (!isNumber(n)) throw new ValidationError(p, `expected number, got ${typeof n}`)
+    return n
+  }) ?? null
+  const maxValue = checkOptional(v.maxValue, `${path}.maxValue`, (n, p) => {
+    if (!isNumber(n)) throw new ValidationError(p, `expected number, got ${typeof n}`)
+    return n
+  }) ?? null
+  if (minValue !== null && maxValue !== null && minValue > maxValue) {
+    throw new ValidationError(`${path}.minValue`, 'must be <= maxValue')
+  }
+  return {
+    key: checkStringLength(v.key, `${path}.key`, { min: 1, max: 100 }).trim(),
+    entityType: checkOptional(v.entityType, `${path}.entityType`, (s, p) => checkStringLength(s, p, { min: 1, max: 100 })) ?? 'character',
+    label: checkStringLength(v.label, `${path}.label`, { min: 1, max: 100 }).trim(),
+    valueType: checkEnum(v.valueType, `${path}.valueType`, VALID_ATTRIBUTE_VALUE_TYPES),
+    enumValues: checkOptional(v.enumValues, `${path}.enumValues`, (a, p) => checkStringArray(a, p, 100, 200)) ?? [],
+    unit: checkOptional(v.unit, `${path}.unit`, (s, p) => checkStringLength(s, p, { max: 50 })) ?? '',
+    minValue,
+    maxValue,
+    showInPanel: checkOptionalBoolean(v.showInPanel, `${path}.showInPanel`) ?? true,
+    sortOrder: checkOptional(v.sortOrder, `${path}.sortOrder`, (n, p) => checkNumberRange(n, p, { min: -1e6, max: 1e6, integer: true })) ?? 0,
+  }
+}
+
+/** db:attribute-value-set 入参 */
+export function validateAttributeValueInput(v: unknown, path = 'value') {
+  if (!isObject(v)) throw new ValidationError(path, 'expected object')
+  return {
+    entityId: checkStringLength(v.entityId, `${path}.entityId`, { min: 1, max: 200 }).trim(),
+    attrKey: checkStringLength(v.attrKey, `${path}.attrKey`, { min: 1, max: 100 }).trim(),
+    chapterNumber: checkNumberRange(v.chapterNumber, `${path}.chapterNumber`, { min: 1, max: 1e9, integer: true }),
+    phase: checkOptional(v.phase, `${path}.phase`, (s, p) => checkEnum(s, p, VALID_ATTRIBUTE_PHASES)),
+    numValue: checkOptional(v.numValue, `${path}.numValue`, (n, p) => {
+      if (!isNumber(n)) throw new ValidationError(p, `expected number, got ${typeof n}`)
+      return n
+    }) ?? null,
+    textValue: checkOptional(v.textValue, `${path}.textValue`, (s, p) => checkStringLength(s, p, { max: 5000 })) ?? null,
+    source: checkOptional(v.source, `${path}.source`, (s, p) => checkStringLength(s, p, { max: 200 })) ?? '',
+    sourceEventId: checkOptional(v.sourceEventId, `${path}.sourceEventId`, (n, p) => checkNumberRange(n, p, { min: 1, max: 1e9, integer: true })) ?? null,
+  }
+}
+
+/** db:relation-upsert 入参 */
+export function validateEntityRelationInput(v: unknown, path = 'relation') {
+  if (!isObject(v)) throw new ValidationError(path, 'expected object')
+  return {
+    fromId: checkStringLength(v.fromId, `${path}.fromId`, { min: 1, max: 200 }).trim(),
+    toId: checkStringLength(v.toId, `${path}.toId`, { min: 1, max: 200 }).trim(),
+    relationType: checkStringLength(v.relationType, `${path}.relationType`, { min: 1, max: 100 }).trim(),
+    affection: checkOptional(v.affection, `${path}.affection`, (n, p) => checkNumberRange(n, p, { min: -1e9, max: 1e9, integer: true })) ?? 0,
+    status: checkOptional(v.status, `${path}.status`, (s, p) => checkEnum(s, p, VALID_RELATION_STATUSES)),
+    sinceChapter: checkOptional(v.sinceChapter, `${path}.sinceChapter`, checkNonNegativeInteger) ?? 0,
+    lastChangedChapter: checkOptional(v.lastChangedChapter, `${path}.lastChangedChapter`, checkNonNegativeInteger),
+    note: checkOptional(v.note, `${path}.note`, (s, p) => checkStringLength(s, p, { max: 2000 })) ?? '',
+  }
+}
+
+/** db:style-create / db:style-update 入参 */
+export function validateStyleProfileInput(v: unknown, path = 'style') {
+  if (!isObject(v)) throw new ValidationError(path, 'expected object')
+  return {
+    name: checkStringLength(v.name, `${path}.name`, { min: 1, max: 100 }).trim(),
+    rules: checkOptional(v.rules, `${path}.rules`, (a, p) => checkStringArray(a, p, 1000, 300)) ?? [],
+    promptHint: checkOptional(v.promptHint, `${path}.promptHint`, (s, p) => checkStringLength(s, p, { max: 4000 })) ?? '',
+    isActive: checkOptionalBoolean(v.isActive, `${path}.isActive`) ?? false,
+  }
+}
+
+/** db:review-finding-add / add-many 入参 */
+export function validateReviewFindingInput(v: unknown, path = 'finding') {
+  if (!isObject(v)) throw new ValidationError(path, 'expected object')
+  return {
+    chapterNumber: checkNumberRange(v.chapterNumber, `${path}.chapterNumber`, { min: 1, max: 1e9, integer: true }),
+    draftId: checkOptional(v.draftId, `${path}.draftId`, (s, p) => checkStringLength(s, p, { max: 100 })) ?? '',
+    stage: checkStringLength(v.stage, `${path}.stage`, { min: 1, max: 100 }),
+    category: checkStringLength(v.category, `${path}.category`, { min: 1, max: 100 }),
+    severity: checkEnum(v.severity, `${path}.severity`, VALID_REVIEW_SEVERITIES),
+    message: checkStringLength(v.message, `${path}.message`, { min: 1, max: 5000 }),
+    evidence: checkOptional(v.evidence, `${path}.evidence`, (s, p) => checkStringLength(s, p, { max: 5000 })) ?? '',
+    locationHint: checkOptional(v.locationHint, `${path}.locationHint`, (s, p) => checkStringLength(s, p, { max: 5000 })) ?? '',
+  }
 }
 
 /**

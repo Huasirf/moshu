@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+﻿import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -9,7 +9,7 @@ describe('config-utils：JSON 配置的原子写与损坏恢复', () => {
   let file: string
 
   beforeEach(() => {
-    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vela-config-'))
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'moshu-config-'))
     file = path.join(dir, 'models.json')
   })
 

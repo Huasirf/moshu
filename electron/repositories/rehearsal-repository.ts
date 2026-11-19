@@ -1,4 +1,4 @@
-import path from 'node:path'
+﻿import path from 'node:path'
 import { getProjectDb } from '../database'
 import { ProjectCoreRepository } from './project-core-repository'
 import type { RehearsalContext, RehearsalExcerpt } from '../../src/shared/story-rehearsal'
@@ -10,7 +10,7 @@ export function requireProjectDatabase(projectPath: string) {
   if (typeof projectPath !== 'string' || !path.isAbsolute(projectPath)) {
     throw new Error('PROJECT_CHANGED')
   }
-  const expected = path.resolve(projectPath, '.vela', 'vela.db')
+  const expected = path.resolve(projectPath, '.moshu', 'moshu.db')
   const actual = path.resolve(db.name)
   const normalize = (value: string) => process.platform === 'win32' ? value.toLowerCase() : value
   if (normalize(expected) !== normalize(actual)) throw new Error('PROJECT_CHANGED')

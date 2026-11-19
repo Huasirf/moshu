@@ -1,17 +1,17 @@
-/**
+﻿/**
  * 项目数据库备份
  *
- * 备份放在 {项目}/.vela/backups/，文件名 vela-<类别>-<时间戳>.db，按类别滚动保留最新若干份。
- * 用 SQLite 自己的机制生成一致副本（包含 WAL 中已提交的数据），不能直接复制 vela.db 文件：
+ * 备份放在 {项目}/.moshu/backups/，文件名 moshu-<类别>-<时间戳>.db，按类别滚动保留最新若干份。
+ * 用 SQLite 自己的机制生成一致副本（包含 WAL 中已提交的数据），不能直接复制 moshu.db 文件：
  * WAL 模式下最新的提交可能还在 -wal 文件里。
  */
 import path from 'node:path'
 import fs from 'node:fs'
 import type BetterSqlite3 from 'better-sqlite3'
 
-/** 备份目录：{项目}/.vela/backups */
+/** 备份目录：{项目}/.moshu/backups */
 export function getBackupDir(projectPath: string): string {
-  return path.join(projectPath, '.vela', 'backups')
+  return path.join(projectPath, '.moshu', 'backups')
 }
 
 /** 同一毫秒内的序号：保证文件名唯一且字典序与创建顺序一致 */
@@ -20,7 +20,7 @@ let sequence = 0
 function backupFilePath(projectPath: string, label: string): string {
   const stamp = new Date().toISOString().replace(/[:.]/g, '-')
   const seq = String(sequence++ % 1000).padStart(3, '0')
-  return path.join(getBackupDir(projectPath), `vela-${label}-${stamp}-${seq}.db`)
+  return path.join(getBackupDir(projectPath), `moshu-${label}-${stamp}-${seq}.db`)
 }
 
 /**
@@ -55,7 +55,7 @@ export async function snapshotDatabase(db: BetterSqlite3.Database, projectPath: 
 export function listBackups(projectPath: string, label: string): string[] {
   const dir = getBackupDir(projectPath)
   if (!fs.existsSync(dir)) return []
-  const prefix = `vela-${label}-`
+  const prefix = `moshu-${label}-`
   // 时间戳是 ISO 格式，字典序即时间序
   return fs.readdirSync(dir)
     .filter((f) => f.startsWith(prefix) && f.endsWith('.db'))

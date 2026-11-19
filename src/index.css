@@ -1,5 +1,5 @@
-/* ========================================================================
- * Vela — index.css
+﻿/* ========================================================================
+ * 墨枢 — index.css
  * TailwindCSS v4 全面适配版本
  *
  * 层级顺序（由低到高）：
@@ -250,6 +250,12 @@
     --width-right-bar: 44px;
     --width-bottom-bar: 32px;
 
+    /* ===== 控件尺寸（统一放大：次按钮 32 / 主按钮 36 / 大按钮 44） ===== */
+    --ctrl-h-sm: 32px;
+    --ctrl-h-md: 36px;
+    --ctrl-h-lg: 44px;
+    --ctrl-font: 13px;
+
     /* 圆角（加大圆角，更现代） */
     --radius-sm: 4px;
     --radius-md: 6px;
@@ -411,66 +417,66 @@
     --shadow-tooltip: 0 4px 12px rgba(44, 37, 32, 0.18);
   }
 
-  /* 🌃 黑夜主题 — VS Code / IDEA 深灰极客风（真正的暗黑模式） */
+  /* 🌃 黑夜主题 — 纯黑中性色板（Trae/Codex 风）：zinc 灰阶 + 单一冷蓝强调 */
   .dark {
-    --color-bg: #1E1E1E;
-    --color-sidebar: #252526;
-    --color-panel: #252526;
-    --color-titlebar: #181818;
-    --color-activity-bar: #333333;
-    --color-hover: #2A2D2E;
-    --color-active: #37373D;
+    --color-bg: #0A0A0B;
+    --color-sidebar: #111113;
+    --color-panel: #111113;
+    --color-titlebar: #0A0A0B;
+    --color-activity-bar: #0C0C0E;
+    --color-hover: #1B1B1F;
+    --color-active: #242429;
 
-    --color-text: #D4D4D4;
-    --color-text-secondary: #A0A0A0;
-    --color-text-muted: #888888;
+    --color-text: #E4E4E7;
+    --color-text-secondary: #A1A1AA;
+    --color-text-muted: #63636B;
 
-    --color-border: #3C3C3C;
+    --color-border: #232327;
 
-    --color-accent: #0E639C;
-    --color-accent-hover: #1177BB;
-    --color-accent-rgb: 14, 99, 156;
+    --color-accent: #4A9EFF;
+    --color-accent-hover: #6BB0FF;
+    --color-accent-rgb: 74, 158, 255;
 
     --color-gold: #C9A76C;
 
-    --color-success: #89D185;
-    --color-warning: #CCA700;
-    --color-error: #F14C4C;
-    --color-info: #3794FF;
+    --color-success: #4ADE80;
+    --color-warning: #FBBF24;
+    --color-error: #F87171;
+    --color-info: #4A9EFF;
 
     --color-tab-bg: transparent;
-    --color-tab-active: #1E1E1E;
+    --color-tab-active: #0A0A0B;
     --color-tab-border: transparent;
-    --color-tab-indicator: #0E639C;
+    --color-tab-indicator: #4A9EFF;
 
-    --color-statusbar: #181818;
-    --color-statusbar-text: #909090;
+    --color-statusbar: #0C0C0E;
+    --color-statusbar-text: #71717A;
 
-    --color-titlebar-text: #CCCCCC;
+    --color-titlebar-text: #A1A1AA;
 
-    --color-activity-icon: #858585;
-    --color-activity-icon-active: #FFFFFF;
-    --color-activity-indicator: #FFFFFF;
+    --color-activity-icon: #71717A;
+    --color-activity-icon-active: #E4E4E7;
+    --color-activity-indicator: #4A9EFF;
 
-    --color-editor-bg: #1E1E1E;
-    --color-editor-line-highlight: rgba(255, 255, 255, 0.04);
-    --color-editor-selection: rgba(38, 79, 120, 0.6);
+    --color-editor-bg: #0A0A0B;
+    --color-editor-line-highlight: rgba(255, 255, 255, 0.03);
+    --color-editor-selection: rgba(74, 158, 255, 0.22);
 
     --color-sash: transparent;
-    --color-sash-hover: rgba(0, 122, 204, 0.5);
+    --color-sash-hover: rgba(74, 158, 255, 0.35);
 
-    --color-focus-ring: rgba(0, 122, 204, 0.4);
-    --color-backdrop: rgba(0, 0, 0, 0.4);
-    --color-tooltip-bg: #252526;
-    --color-tooltip-text: #CCCCCC;
+    --color-focus-ring: rgba(74, 158, 255, 0.45);
+    --color-backdrop: rgba(0, 0, 0, 0.55);
+    --color-tooltip-bg: #1B1B1F;
+    --color-tooltip-text: #E4E4E7;
     --color-skeleton: rgba(255, 255, 255, 0.05);
-    --color-badge-bg: #4D4D4D;
-    --color-badge-text: #FFFFFF;
+    --color-badge-bg: rgba(74, 158, 255, 0.12);
+    --color-badge-text: #4A9EFF;
 
     --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
     --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.5);
     --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.6);
-    --shadow-popover: 0 16px 40px -8px rgba(0, 0, 0, 0.7), 0 4px 16px -4px rgba(0, 0, 0, 0.5);
+    --shadow-popover: 0 0 0 1px rgba(255, 255, 255, 0.06), 0 16px 40px -8px rgba(0, 0, 0, 0.7), 0 4px 16px -4px rgba(0, 0, 0, 0.5);
     --shadow-tooltip: 0 4px 12px rgba(0, 0, 0, 0.5);
   }
 
@@ -592,14 +598,12 @@
     right: 0;
   }
 
-  /* ===== 面板标题栏 — JetBrains 风格：紧凑、全大写、弱化 ===== */
+  /* ===== 面板标题栏 — 紧凑、弱化 ===== */
   .panel-header {
     @apply flex items-center px-3 gap-2;
     height: var(--height-panel-header);
-    font-size: 11px;
-    font-weight: 600;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
+    font-size: 12px;
+    font-weight: 500;
     color: var(--color-text-muted);
     border-bottom: 1px solid var(--color-border);
     background: transparent;
@@ -607,15 +611,13 @@
     flex-shrink: 0;
   }
 
-  /* ===== 树节点 — 舒适的 26px 行高，带增强悬停效果 ===== */
+  /* ===== 树节点 — 舒适的 26px 行高 ===== */
   .tree-item {
     @apply flex items-center gap-1.5 px-2 cursor-pointer;
     height: 26px;
     font-size: 13px;
     color: var(--color-text);
-    transition: background var(--transition-fast),
-                box-shadow var(--transition-fast),
-                transform 0.12s ease;
+    transition: background var(--transition-fast);
     position: relative;
     border-radius: var(--radius-sm);
     margin: 0 4px;
@@ -623,7 +625,6 @@
 
   .tree-item:hover {
     background: var(--color-hover);
-    transform: translateX(2px);
   }
 
   /* 激活节点：背景 + 左侧 2px 品牌色竖线 */
@@ -635,25 +636,19 @@
   /* ===== 旧按钮类已废弃 — 请使用 <Button> 组件 (src/components/ui/Button.tsx) ===== */
   /* .btn-primary 和 .btn-ghost 已迁移至 Button.tsx 的 cva 变体系统 */
 
-  /* ===== 图标按钮 — 22px 尺寸，带增强悬停效果 ===== */
+  /* ===== 图标按钮 — 22px 尺寸 ===== */
   .icon-btn {
     @apply flex items-center justify-center;
     width: 22px;
     height: 22px;
     border-radius: var(--radius-sm);
     color: var(--color-text-secondary);
-    transition: all var(--transition-fast),
-                transform 0.15s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    transition: background var(--transition-fast), color var(--transition-fast);
   }
 
   .icon-btn:hover {
     background: var(--color-hover);
     color: var(--color-text);
-    transform: scale(1.1);
-  }
-
-  .icon-btn:active {
-    transform: scale(0.95);
   }
 
   /* ===== 配置编辑器输入框 ===== */
@@ -674,16 +669,13 @@
     color: var(--color-text-muted);
   }
 
-  /* ===== 工具窗口按钮 — 三条工具栏共用，带增强悬停效果 ===== */
+  /* ===== 工具窗口按钮 — 三条工具栏共用 ===== */
   .tool-btn {
     @apply flex items-center justify-center relative;
     width: 100%;
     height: 30px;
     color: var(--color-activity-icon);
-    transition: color var(--transition-fast),
-                background var(--transition-fast),
-                transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275),
-                box-shadow 0.2s ease;
+    transition: color var(--transition-fast), background var(--transition-fast);
     cursor: pointer;
     border: none;
     background: transparent;
@@ -694,7 +686,6 @@
   .tool-btn:hover {
     background: rgba(var(--color-accent-rgb), 0.08);
     color: var(--color-text);
-    transform: scale(1.08);
   }
 
   .tool-btn.active {
@@ -776,77 +767,19 @@
     animation: agent-cursor-blink 1s steps(1) infinite;
   }
 
-  /* ===== 品牌渐变文字 — 统一所有品牌标识使用（Logo 冰蓝→薰衣草紫） ===== */
-  .brand-gradient {
-    background: linear-gradient(135deg, #7EC8E3, #9B8EC8);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-  }
-
-  /* ===== Default 主按钮 — 品牌冰蓝渐变 + 玻璃高光 + 增强动效 ===== */
+  /* ===== 主按钮 — 平实单色（冷蓝），无渐变/发光/上浮 ===== */
   .btn-primary {
-    background: linear-gradient(180deg, var(--color-accent), var(--color-accent-hover));
-    border: 1px solid rgba(255, 255, 255, 0.15);
-    box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.2),
-      0 2px 4px rgba(0, 0, 0, 0.15),
-      0 0 0 0 rgba(var(--color-accent-rgb), 0);
-    transition: box-shadow var(--transition-normal),
-                transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275),
-                filter 0.15s ease;
+    background: var(--color-accent);
+    border: 1px solid transparent;
+    transition: filter var(--transition-fast), background var(--transition-fast);
   }
 
   .btn-primary:hover {
     filter: brightness(1.12);
-    box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.25),
-      0 6px 20px rgba(var(--color-accent-rgb), 0.35),
-      0 0 30px rgba(var(--color-accent-rgb), 0.15);
-    transform: translateY(-2px);
   }
 
   .btn-primary:active {
-    transform: translateY(0);
-    filter: brightness(0.95);
-    box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.1),
-      0 1px 2px rgba(0, 0, 0, 0.1);
-  }
-
-  /* ===== AI 极光光效按钮 — 所有 AI 功能按钮统一使用（Logo 冰蓝→薰衣草紫） ===== */
-  .ai-glow {
-    position: relative;
-    background: linear-gradient(135deg, #7EC8E3, #9B8EC8);
-    color: #fff;
-    border: none;
-    transition: box-shadow var(--transition-normal),
-                transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-  }
-
-  .ai-glow::before {
-    content: '';
-    position: absolute;
-    inset: -3px;
-    border-radius: inherit;
-    background: linear-gradient(135deg, rgba(126, 200, 227, 0.5), rgba(155, 142, 200, 0.5), rgba(201, 167, 108, 0.3));
-    filter: blur(8px);
-    opacity: 0;
-    transition: opacity var(--transition-normal);
-    z-index: -1;
-  }
-
-  .ai-glow:hover {
-    box-shadow: 0 6px 24px rgba(126, 200, 227, 0.35), 0 0 32px rgba(155, 142, 200, 0.25);
-    transform: translateY(-2px);
-  }
-
-  .ai-glow:hover::before {
-    opacity: 1;
-  }
-
-  .ai-glow:active {
-    transform: translateY(0);
+    filter: brightness(0.92);
   }
 }
 
@@ -931,6 +864,28 @@
 @keyframes action-toast-exit {
   0% { opacity: 1; transform: translateX(0) scale(1); }
   100% { opacity: 0; transform: translateX(24px) scale(0.96); }
+}
+
+/* =====================================================================
+ * 可访问性 — 键盘焦点与减少动效（P6-2）
+ * 只在键盘导航时显示焦点环，不干扰鼠标点击的视觉；系统开启「减少动态效果」
+ * 时把动画/过渡压到最短，避免前庭不适与长动画卡顿。
+ * ===================================================================== */
+:where(button, [role='button'], a, summary):focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 /* ===== 新增强动画 ===== */
@@ -1163,78 +1118,6 @@
   animation: bounce-in 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
 }
 
-/* 交错渐入 - 用于列表项依次入场 */
-.stagger-enter > *:nth-child(1) { animation-delay: 0ms; }
-.stagger-enter > *:nth-child(2) { animation-delay: 50ms; }
-.stagger-enter > *:nth-child(3) { animation-delay: 100ms; }
-.stagger-enter > *:nth-child(4) { animation-delay: 150ms; }
-.stagger-enter > *:nth-child(5) { animation-delay: 200ms; }
-.stagger-enter > *:nth-child(6) { animation-delay: 250ms; }
-.stagger-enter > *:nth-child(7) { animation-delay: 300ms; }
-.stagger-enter > *:nth-child(8) { animation-delay: 350ms; }
-.stagger-enter > *:nth-child(9) { animation-delay: 400ms; }
-.stagger-enter > *:nth-child(10) { animation-delay: 450ms; }
-
-/* 悬停上浮效果 */
-.hover-lift {
-  transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275), box-shadow 0.2s ease;
-}
-.hover-lift:hover {
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-md);
-}
-
-/* 悬停缩放效果 */
-.hover-scale {
-  transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-}
-.hover-scale:hover {
-  transform: scale(1.02);
-}
-
-/* 按下缩放效果 */
-.active-press:active {
-  transform: scale(0.98);
-}
-
-/* 发光边框效果 */
-.glow-border {
-  position: relative;
-}
-.glow-border::before {
-  content: '';
-  position: absolute;
-  inset: -1px;
-  border-radius: inherit;
-  background: linear-gradient(135deg, var(--color-accent), var(--color-gold));
-  opacity: 0;
-  transition: opacity 0.3s ease;
-  z-index: -1;
-}
-.glow-border:hover::before {
-  opacity: 0.5;
-}
-
-/* 玻璃态效果 */
-.glass {
-  background: rgba(var(--color-bg), 0.8);
-  backdrop-filter: blur(20px);
-  border: 1px solid rgba(var(--color-border), 0.5);
-}
-
-/* 渐变文字效果 */
-.text-gradient {
-  background: linear-gradient(135deg, var(--color-accent), var(--color-gold));
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-}
-
-/* 平滑滚动 */
-.smooth-scroll {
-  scroll-behavior: smooth;
-}
-
 /* 焦点环增强 */
 .focus-ring:focus-visible {
   outline: none;
@@ -1256,4 +1139,17 @@
   );
   background-size: 200% 100%;
   animation: shimmer 1.5s ease-in-out infinite;
+}
+/* ===== 全局控件基线（P2 统一放大） =====
+   手写 <button>/<input> 与 Button 组件尺寸对齐：所有按钮至少 32px 高，
+   带图标的按钮至少 32px 宽；输入框/下拉框至少 32px 高。 */
+button {
+  min-height: var(--ctrl-h-sm);
+}
+button:has(svg) {
+  min-width: var(--ctrl-h-sm);
+}
+input:not([type='checkbox']):not([type='radio']):not([type='range']),
+select {
+  min-height: var(--ctrl-h-sm);
 }

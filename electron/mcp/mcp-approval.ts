@@ -1,17 +1,17 @@
-/**
+﻿/**
  * MCP 服务器首次运行确认
  *
  * stdio 服务器会以当前用户的权限启动任意命令。每份启动配置（command / args / env 的指纹）第一次运行前，
- * 由主进程弹出系统原生对话框请用户确认（渲染进程无法伪造或绕过）；允许后记入 ~/.vela/mcp-approvals.json，
+ * 由主进程弹出系统原生对话框请用户确认（渲染进程无法伪造或绕过）；允许后记入 ~/.moshu/mcp-approvals.json，
  * 之后同一配置不再询问，配置有任何改动则需要重新确认。
  * 拒绝只在本次运行内生效（下次启动会再问）；不想要的服务器请从 mcp_config.json 中删除。
  */
 import { BrowserWindow, dialog, type MessageBoxOptions } from 'electron'
 import path from 'node:path'
-import { VELA_HOME, readJsonFile, writeJsonFile } from '../utils/config-utils'
+import { MOSHU_HOME, readJsonFile, writeJsonFile } from '../utils/config-utils'
 import { computeMcpFingerprint, type MCPLaunchSpec } from './mcp-launch'
 
-export const MCP_APPROVALS_PATH = path.join(VELA_HOME, 'mcp-approvals.json')
+export const MCP_APPROVALS_PATH = path.join(MOSHU_HOME, 'mcp-approvals.json')
 
 interface ApprovalRecord {
   fingerprint: string

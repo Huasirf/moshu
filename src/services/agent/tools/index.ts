@@ -13,10 +13,16 @@ import { readBlueprintTool } from './read-blueprint.tool'
 import { readCharactersTool } from './read-characters.tool'
 import { readProjectStateTool } from './read-project-state.tool'
 import { readDraftsTool } from './read-drafts.tool'
+import { readAssetsTool } from './read-assets.tool'
+import { readCharacterStateTool } from './read-character-state.tool'
+import { readRelationsTool } from './read-relations.tool'
+import { readPipelineTool } from './read-pipeline.tool'
+import { readReviewFindingsTool } from './read-review-findings.tool'
 import { listChaptersTool } from './list-chapters.tool'
 import { writeFileTool } from './write-file.tool'
 import { openEditorTool } from './open-editor.tool'
 import { updateConfigTool } from './update-config.tool'
+import { applyMutationPlanTool } from './apply-mutation-plan.tool'
 import { storyIndexTool, storyReadTool, storyReviseTool, storyHistoryTool, storyUndoTool, storyRewriteDraftTool } from './story-content.tool'
 
 /** 所有内置 Tool（供外部引用） */
@@ -30,11 +36,17 @@ export const builtinTools = [
   readCharactersTool,
   readProjectStateTool,
   readDraftsTool,
+  readAssetsTool,
+  readCharacterStateTool,
+  readRelationsTool,
+  readPipelineTool,
+  readReviewFindingsTool,
   listChaptersTool,
   // 行动 Tool（需确认）
   writeFileTool,
   openEditorTool,
   updateConfigTool,
+  applyMutationPlanTool,
 ]
 
 /**

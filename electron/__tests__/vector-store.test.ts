@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+﻿import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -31,7 +31,7 @@ describe('vector-store：LanceDB 读写（真实库，临时目录）', () => {
   let project: string
 
   beforeEach(() => {
-    project = fs.mkdtempSync(path.join(os.tmpdir(), 'vela-lance-'))
+    project = fs.mkdtempSync(path.join(os.tmpdir(), 'moshu-lance-'))
   })
 
   afterEach(() => {

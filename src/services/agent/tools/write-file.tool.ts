@@ -1,4 +1,4 @@
-/**
+﻿/**
  * write_file — 写入或修改项目文件
  */
 import i18n from '../../../i18n'
@@ -46,6 +46,15 @@ export const writeFileTool = buildAgentTool({
     const pathCheck = validatePath(project.path, filePath)
     if (!pathCheck.valid) {
       return { success: false, content: '', error: pathCheck.error }
+    }
+
+    // P2-5：项目数据（.moshu/ 目录、SQLite 文件）只能走专用数据工具，
+    // 禁止 Agent 用 write_file 绕过 Repository / IPC 校验。
+    const normalized = filePath.replace(/\\/g, '/').replace(/^\.\//, '')
+    const protectedPath = normalized.split('/').some(seg => seg === '.moshu')
+      || /\.(db|sqlite|sqlite3)(-wal|-shm)?$/i.test(normalized)
+    if (protectedPath) {
+      return { success: false, content: '', error: t('agent.tools.writeFile.protectedPath') }
     }
 
     const result = await ipc.invoke('fs:write-file', pathCheck.fullPath, content)

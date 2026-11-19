@@ -1,4 +1,4 @@
-import { app, BrowserWindow, shell } from 'electron'
+﻿import { app, BrowserWindow, shell } from 'electron'
 import { registerIPCHandlers } from './ipc-handlers'
 import { registerMCPHandlers } from './mcp/mcp-ipc-bridge'
 import { mcpManager } from './mcp/mcp-manager'
@@ -25,7 +25,13 @@ process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL
 
 let win: BrowserWindow | null
 
-// 同一时间只允许一个实例：两个实例会同时打开同一个项目库、同时改写 ~/.vela 下的配置，互相覆盖
+// 仅测试用途：设置 MOSHU_DEBUG_PORT 时开放 CDP 调试端口，供外部脚本驱动渲染进程。
+// 未设置该环境变量时对正常运行零影响。
+if (process.env.MOSHU_DEBUG_PORT) {
+  app.commandLine.appendSwitch('remote-debugging-port', process.env.MOSHU_DEBUG_PORT)
+}
+
+// 同一时间只允许一个实例：两个实例会同时打开同一个项目库、同时改写 ~/.moshu 下的配置，互相覆盖
 const isPrimaryInstance = app.requestSingleInstanceLock()
 if (!isPrimaryInstance) {
   app.quit()
@@ -69,7 +75,7 @@ function createWindow() {
     height: 900,
     minWidth: 1024,
     minHeight: 640,
-    title: 'Vela — AI 小说创作 IDE',
+    title: '墨枢 MoShu — AI 小说创作 IDE',
     icon: path.join(process.env.APP_ROOT!, 'build', 'icon.png'),
     // macOS 使用自定义标题栏
     titleBarStyle: 'hiddenInset',

@@ -45,6 +45,7 @@ export type WorkflowType =
   | 'directory'               // 目录/蓝图生成
   | 'chapter_creation'        // 章节创作（写稿→修稿→审稿→定稿）
   | 'batch_generate'          // 批量生成
+  | 'plan_scenes'             // 单章场景拆解（章纲 → 场景表）
   | 'config_generation'       // 智能配置生成
   | 'post_process'            // 后处理任务（角色卡提取等）
   | 'novel_import'            // 导入已有小说（逆向推演全流程）

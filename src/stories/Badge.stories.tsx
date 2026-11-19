@@ -1,9 +1,9 @@
-// eslint-disable-next-line storybook/no-renderer-packages
+﻿// eslint-disable-next-line storybook/no-renderer-packages
 import type { Meta, StoryObj } from '@storybook/react'
 import { Badge } from '../components/ui/Badge'
 
 const meta = {
-  title: 'Vela UI/Badge',
+  title: 'MoShu UI/Badge',
   component: Badge,
   tags: ['autodocs'],
   argTypes: {
@@ -16,7 +16,7 @@ const meta = {
   parameters: {
     docs: {
       description: {
-        component: 'Vela badge component for status indicators and labels. Supports 6 semantic variants.',
+        component: 'MoShu badge component for status indicators and labels. Supports 6 semantic variants.',
       },
     },
   },

@@ -1,16 +1,18 @@
-/**
+﻿/**
  * Anthropic 原生协议（Messages API：POST {baseUrl}/v1/messages）
  *
  * - system 放在请求顶层；相邻的同角色消息合并（Messages API 要求 user / assistant 交替）。
- * - 不发送 temperature / top_p / top_k 与 thinking 字段：Claude Opus 4.7 起的模型对非默认采样参数、
+ * - 默认不发送 temperature / top_p / top_k 与 thinking 字段：Claude Opus 4.7 起的模型对非默认采样参数、
  *   手动思考预算直接返回 400；自适应思考常开的模型会自行思考，较早的模型按默认不思考。
+ *   用户在模型配置里显式选择思考档位后才发送 thinking（并 clamp 预算到 max_tokens 以内）。
  * - 回复可能以 thinking 块开头：只按类型读取 text 块，流式里只转发 text_delta。
  * - 思考 token 也计入 max_tokens：在调用方要求的输出上限之外额外留出思考余量，避免正文被截断。
  * - 提示缓存：PromptBuilder 用不可见标记圈出 Canon 上下文（src/shared/prompt-cache.ts），这里把它提到 system 开头并打上
  *   cache_control。同一章节的写稿 / 精修 / 审稿 / 修稿共用这段前缀，后续请求按缓存价读取（5 分钟内有请求命中就会续期）。
  */
 import { ILLMProvider, LLMGenerateOptions, LLMResponse, LLMStreamOptions } from './provider.interface'
-import { ModelProfile } from '../../src/shared/ipc-channels'
+import { ModelProfile, ThinkingLevel } from '../../src/shared/ipc-channels'
+import { ANTHROPIC_BUDGETS, mappedThinkingValue } from './thinking'
 import { extractCacheable, stripCacheMarkers } from '../../src/shared/prompt-cache'
 import {
   createTimeoutController, withRequestTimeout, timeoutMessage, httpErrorMessage,
@@ -50,6 +52,7 @@ export interface AnthropicRequest {
     messages: Array<{ role: 'user' | 'assistant'; content: string }>
     system?: TextBlock[]
     stream?: boolean
+    thinking?: { type: 'enabled'; budget_tokens: number }
   }
   /** 是否把 Canon 上下文提到了 system 开头（用于日志） */
   cached: boolean
@@ -89,7 +92,7 @@ export function buildMessagesUrl(baseUrl: string): string {
 export function buildAnthropicRequest(
   model: ModelProfile,
   messages: ChatMessage[],
-  opts: { maxTokens?: number },
+  opts: { maxTokens?: number; thinkingLevel?: ThinkingLevel },
   stream: boolean,
 ): AnthropicRequest {
   const systemParts: string[] = []
@@ -126,13 +129,21 @@ export function buildAnthropicRequest(
   if (systemParts.length > 0) system.push({ type: 'text', text: systemParts.join('\n\n') })
 
   const requested = Math.max(1, Math.floor(Number(opts.maxTokens ?? model.maxTokens) || 4096))
+  const maxTokens = Math.max(requested, Math.min(requested + THINKING_HEADROOM_TOKENS, MAX_OUTPUT_TOKENS))
   const body: AnthropicRequest['body'] = {
     model: model.modelName,
-    max_tokens: Math.max(requested, Math.min(requested + THINKING_HEADROOM_TOKENS, MAX_OUTPUT_TOKENS)),
+    max_tokens: maxTokens,
     messages: turns,
   }
   if (system.length > 0) body.system = system
   if (stream) body.stream = true
+
+  const level = opts.thinkingLevel
+  if (level && level !== 'off') {
+    const wanted = ANTHROPIC_BUDGETS[level]
+    // 思考 token 计入 max_tokens，至少给正文留 1024
+    body.thinking = { type: 'enabled', budget_tokens: Math.min(Math.max(wanted, 1024), maxTokens - 1024) }
+  }
 
   return {
     url: buildMessagesUrl(model.baseUrl),
@@ -157,7 +168,7 @@ function logCacheUsage(u: AnthropicUsage | undefined): void {
   const written = u?.cache_creation_input_tokens ?? 0
   const read = u?.cache_read_input_tokens ?? 0
   if (written > 0 || read > 0) {
-    console.log(`[Vela LLM] Claude 提示缓存：写入 ${written} tokens，命中 ${read} tokens`)
+    console.log(`[MoShu LLM] Claude 提示缓存：写入 ${written} tokens，命中 ${read} tokens`)
   }
 }
 
@@ -181,7 +192,10 @@ function mergeUsage(current: AnthropicUsage, next: AnthropicUsage | undefined): 
 
 export class AnthropicProvider implements ILLMProvider {
   async generate(model: ModelProfile, messages: ChatMessage[], opts: LLMGenerateOptions): Promise<LLMResponse> {
-    const request = buildAnthropicRequest(model, messages, opts, false)
+    if (opts.thinking && opts.thinking !== 'off' && mappedThinkingValue(model, opts.thinking) === null) {
+      return { success: false, content: '', error: `该模型不支持所选思考档位（${opts.thinking}）` }
+    }
+    const request = buildAnthropicRequest(model, messages, { maxTokens: opts.maxTokens, thinkingLevel: opts.thinking }, false)
 
     type MessagesResponse = {
       content?: Array<{ type?: string; text?: string }>
@@ -223,7 +237,11 @@ export class AnthropicProvider implements ILLMProvider {
     const tc = createTimeoutController(CONNECT_TIMEOUT_MS, opts.signal)
     let streaming = false
     try {
-      const request = buildAnthropicRequest(model, messages, opts, true)
+      if (opts.thinking && opts.thinking !== 'off' && mappedThinkingValue(model, opts.thinking) === null) {
+        opts.onError(`该模型不支持所选思考档位（${opts.thinking}）`)
+        return
+      }
+      const request = buildAnthropicRequest(model, messages, { maxTokens: opts.maxTokens, thinkingLevel: opts.thinking }, true)
       const res = await fetch(request.url, {
         method: 'POST',
         headers: request.headers,

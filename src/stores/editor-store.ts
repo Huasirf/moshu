@@ -29,10 +29,19 @@ interface EditorState {
   tabs: EditorTab[]
   /** 当前活跃的 Tab ID */
   activeTabId: string | null
+  /**
+   * 待定位的章节号（DR-09）
+   * 大纲树 / 资产详情点击「查看蓝图」时先写入，ChapterCardEditor 消费后清空。
+   */
+  pendingChapterFocus: number | null
 
   // ===== Actions =====
   /** 打开文件（如果已打开则激活） */
   openFile: (tab: EditorTab) => void
+  /** 请求在章节蓝图编辑器中定位到某章 */
+  focusChapter: (chapterNumber: number) => void
+  /** 消费（清空）待定位章节 */
+  clearChapterFocus: () => void
   /** 关闭 Tab */
   closeTab: (tabId: string) => void
   /** 激活 Tab */
@@ -65,6 +74,16 @@ interface EditorState {
 export const useEditorStore = create<EditorState>()((set, get) => ({
   tabs: [],
   activeTabId: null,
+  pendingChapterFocus: null,
+
+  focusChapter: (chapterNumber) => {
+    if (!Number.isSafeInteger(chapterNumber) || chapterNumber < 1) return
+    set({ pendingChapterFocus: chapterNumber })
+  },
+
+  clearChapterFocus: () => {
+    if (get().pendingChapterFocus !== null) set({ pendingChapterFocus: null })
+  },
 
   openFile: (tab) => {
     // diff 类型每次内容不同，只按 id 精确匹配（不走 filePath 去重）

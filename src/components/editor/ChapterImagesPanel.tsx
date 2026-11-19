@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+﻿import { useState, useEffect, useCallback } from 'react'
 import { Image as ImageIcon, Loader2, Trash2, Plus, RefreshCw } from 'lucide-react'
 import { ipc } from '../../services/ipc-client'
 import { useLLMStore } from '../../stores/llm-store'
@@ -21,7 +21,7 @@ interface Props {
  * 本章配图面板
  *  - 题图（header）：每章至多一张
  *  - 场景插图（scene）：按需多张
- * 复用 image:generate / image:read + db:chapter-image-*，图片存 .vela/images/。
+ * 复用 image:generate / image:read + db:chapter-image-*，图片存 .moshu/images/。
  */
 export default function ChapterImagesPanel({ chapterNumber, chapterTitle, projectPath }: Props) {
   const [images, setImages] = useState<ChapterImageData[]>([])

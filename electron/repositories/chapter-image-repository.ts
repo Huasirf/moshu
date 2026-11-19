@@ -1,10 +1,10 @@
-/**
+﻿/**
  * ChapterImageRepository — 章节配图 (chapter_images 表)
  *
  * 同时承载两类图：
  *  - header：章节题图，每章至多一张（add 时先删旧的）
  *  - scene ：场景插图，每章可多张
- * 图片文件本体存于 {projectPath}/.vela/images/，本表仅记录路径与提示词。
+ * 图片文件本体存于 {projectPath}/.moshu/images/，本表仅记录路径与提示词。
  */
 import { getProjectDb } from '../database'
 import { safeUnlinkImage } from '../utils/image-file'

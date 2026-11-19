@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+﻿import { useState, useEffect, useRef } from 'react'
 import {
   X, Plus, Trash2, Check, Save, Globe, Cpu, Database,
   Type, Settings2, Zap, Eye, EyeOff, ChevronDown, MessageSquare,
@@ -10,7 +10,7 @@ import i18n from '../../i18n'
 import PromptSettings from './PromptSettings'
 import { useLLMStore } from '../../stores/llm-store'
 import { useThemeStore, FONT_OPTIONS, type FontId } from '../../stores/theme-store'
-import type { ModelProfile } from '../../shared/ipc-channels'
+import type { ModelProfile, ThinkingLevel } from '../../shared/ipc-channels'
 import type { ProviderPreset } from '../../shared/provider-presets'
 import { BUILTIN_PRESETS } from '../../shared/provider-presets'
 import { randomUUID } from '../../utils/id'
@@ -27,16 +27,12 @@ import {
 } from '../../services/editor-autosave'
 import { Switch } from '../ui/Switch'
 import OllamaModelPicker from './OllamaModelPicker'
+import ModelPicker from './ModelPicker'
 import { alertError } from '../ui/AlertDialog'
-
-// 打赏/赞助 图片资源（通过 import 让 Vite 处理路径，确保打包后可正常加载）
-import wepayImg from '/buyme/wepay.jpg?url'
-import alipayImg from '/buyme/alipay.jpg?url'
-import wechatImg from '/buyme/wechat.jpg?url'
 
 // ==================== 分类定义 ====================
 
-type SettingsSection = 'language' | 'llm' | 'embedding' | 'image' | 'proxy' | 'editor' | 'prompts' | 'about'
+type SettingsSection = 'language' | 'llm' | 'embedding' | 'image' | 'proxy' | 'editor' | 'prompts'
 
 interface SectionItem {
   id: SettingsSection
@@ -53,7 +49,6 @@ const SECTIONS: SectionItem[] = [
   { id: 'proxy', label: 'Network Proxy', icon: <Globe size={16} />, descriptionKey: 'general.proxyDesc' },
   { id: 'editor', label: 'Editor', icon: <Type size={16} />, descriptionKey: 'general.editorDesc' },
   { id: 'prompts', label: 'Prompt Templates', icon: <MessageSquare size={16} />, descriptionKey: 'general.promptsDesc' },
-  { id: 'about', label: 'About & Support', icon: <span style={{ color: '#ff4d4f', fontSize: 14 }}>❤️</span>, descriptionKey: 'general.aboutDesc' },
 ]
 
 // ==================== 主组件 ====================
@@ -149,7 +144,6 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
             {section === 'proxy' && <ProxySection />}
             {section === 'editor' && <EditorSection />}
             {section === 'prompts' && <PromptSettings />}
-            {section === 'about' && <AboutSection />}
           </div>
         </main>
       </div>
@@ -171,7 +165,7 @@ function LanguageSection() {
 
   const handleLanguageChange = async (langCode: string) => {
     await i18n.changeLanguage(langCode)
-    localStorage.setItem('vela-locale', langCode)
+    localStorage.setItem('moshu-locale', langCode)
   }
 
   return (
@@ -604,8 +598,13 @@ function ModelForm({
         </div>
       </div>
 
-      {/* Ollama reads the installed models from the configured server. */}
-      {model.provider === 'ollama' ? <OllamaModelPicker model={model} onChange={onChange} /> : <div>
+      {/* 生成模型直接从绑定的上游地址拉取列表；向量 / 文生图模型仍用内置预设 */}
+      {!isEmbedding && !isImage ? (
+        <ModelPicker model={model} onChange={onChange} />
+      ) : model.provider === 'ollama' ? (
+        <OllamaModelPicker model={model} onChange={onChange} />
+      ) : (
+        <div>
         <div className="flex items-center justify-between mb-1">
           <Label className="mb-0">{t('models.modelId')}</Label>
           {presetModels.length > 0 && (
@@ -652,7 +651,8 @@ function ModelForm({
             />
           </div>
         )}
-      </div>}
+        </div>
+      )}
 
       {/* API 地址 */}
       <div>
@@ -723,6 +723,10 @@ function ModelForm({
         </div>
       )}
 
+      {!isEmbedding && !isImage && (
+        <ThinkingSetting model={model} onChange={onChange} />
+      )}
+
       <div className="flex items-center gap-2 pt-1">
         {!isImage && (
           <Button
@@ -755,6 +759,41 @@ function ModelForm({
   )
 }
 
+
+// ==================== 思考强度 ====================
+
+/**
+ * 思考强度设置：默认不发送任何思考参数（旧配置行为不变）。
+ * 只有用户显式选择档位后才向服务商发送；DeepSeek / GLM 只有开/关，低/中/高都按开启发送。
+ */
+function ThinkingSetting({ model, onChange }: { model: ModelProfile; onChange: (m: ModelProfile) => void }) {
+  const { t } = useTranslation('settings')
+  const level = model.thinking?.defaultLevel ?? ''
+  const binaryOnly = model.provider === 'deepseek' || model.provider === 'bigmodel'
+
+  const write = (next: ModelProfile['thinking']) => onChange({ ...model, thinking: next })
+
+  const setLevel = (value: string) => {
+    const base = { ...(model.thinking ?? {}) }
+    if (!value) delete base.defaultLevel
+    else base.defaultLevel = value as ThinkingLevel
+    write(Object.keys(base).length ? base : undefined)
+  }
+
+  return <div className="space-y-2">
+    <Label htmlFor="model-thinking-level">{t('models.thinkingTitle')}</Label>
+    <NativeSelect id="model-thinking-level" value={level} onChange={(e) => setLevel(e.target.value)}>
+      <option value="">{t('models.thinkingDefault')}</option>
+      <option value="off">{t('models.thinkingOff')}</option>
+      <option value="low">{t('models.thinkingLow')}</option>
+      <option value="medium">{t('models.thinkingMedium')}</option>
+      <option value="high">{t('models.thinkingHigh')}</option>
+    </NativeSelect>
+    <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
+      {binaryOnly ? t('models.thinkingBinaryHint') : t('models.thinkingHint')}
+    </p>
+  </div>
+}
 
 // ==================== 代理设置 ====================
 
@@ -1062,40 +1101,6 @@ function EditorSection() {
       >
         <span className="flex-shrink-0 mt-0.5" style={{ color: 'var(--color-text-muted)' }}>{t('appearance.hint')}</span>
         <span>{t('appearance.fontsBuiltIn')}</span>
-      </div>
-    </div>
-  )
-}
-
-// ==================== 关于与支持区 ====================
-
-function AboutSection() {
-  const { t } = useTranslation('settings')
-  return (
-    <div className="space-y-6 max-w-[600px] p-2">
-      <div className="flex flex-col items-center justify-center py-8 rounded-xl space-y-2" style={{ backgroundColor: 'var(--color-sidebar)', border: '1px solid var(--color-border)' }}>
-        <h1 className="text-2xl font-bold brand-gradient tracking-wider">Vela IDE</h1>
-        <p className="text-sm opacity-80" style={{ color: 'var(--color-text)' }}>v{__APP_VERSION__}</p>
-        <p className="text-xs mt-2" style={{ color: 'var(--color-text-muted)' }}>Crafted with ❤️ by heider</p>
-      </div>
-
-      <div className="space-y-4 pt-2">
-        <h3 className="text-sm font-semibold pb-2" style={{ borderBottom: '1px solid var(--color-border)', color: 'var(--color-text)' }}>☕ {t('about.sponsorship')}</h3>
-        <p className="text-xs leading-relaxed" style={{ color: 'var(--color-text-muted)' }}>
-          {t('about.sponsorDescription')}
-        </p>
-        <div className="flex gap-4 items-center">
-          <img src={wepayImg} alt="WeChat Pay" className="w-[180px] rounded-lg" style={{ border: '1px solid var(--color-border)' }} />
-          <img src={alipayImg} alt="Alipay" className="w-[180px] rounded-lg" style={{ border: '1px solid var(--color-border)' }} />
-        </div>
-      </div>
-
-      <div className="space-y-4 pt-4">
-        <h3 className="text-sm font-semibold pb-2" style={{ borderBottom: '1px solid var(--color-border)', color: 'var(--color-text)' }}>🤝 {t('about.businessInquiries')}</h3>
-        <p className="text-xs leading-relaxed" style={{ color: 'var(--color-text-muted)' }}>
-          {t('about.businessDescription')}
-        </p>
-        <img src={wechatImg} alt="WeChat" className="w-[180px] rounded-lg" style={{ border: '1px solid var(--color-border)' }} />
       </div>
     </div>
   )

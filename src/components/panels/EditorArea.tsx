@@ -1,5 +1,5 @@
-import { X, FileText, Settings, Users, ArrowLeftRight, MoreHorizontal, BookOpen, History, ClipboardCheck, Globe, Save, ChevronLeft, ChevronRight, PenTool } from 'lucide-react'
-import { useEffect, useRef, useState, useCallback } from 'react'
+﻿import { X, FileText, Settings, Users, ArrowLeftRight, MoreHorizontal, BookOpen, History, ClipboardCheck, Globe, Save, ChevronLeft, ChevronRight, PenTool } from 'lucide-react'
+import { lazy, Suspense, useEffect, useRef, useState, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ContextMenu, type ContextMenuEntry } from '../ui/ContextMenu'
 import {
@@ -7,30 +7,40 @@ import {
 } from '../ui/Dialog'
 import { Button } from '../ui/Button'
 import CodeMirrorEditor from '../editor/CodeMirrorEditor'
-import NovelConfigEditor from '../editor/NovelConfigEditor'
-import CharacterEditor from '../editor/CharacterEditor'
-import ChapterCardEditor from '../editor/ChapterCardEditor'
-import WorldBuildingEditor from '../editor/WorldBuildingEditor'
-import ArchFileViewer from '../editor/ArchFileViewer'
-import DraftEditor from '../editor/DraftEditor'
-import VersionHistory from '../editor/VersionHistory'
-import ReviewReport from '../editor/ReviewReport'
-import ThreeWayMerge from '../editor/ThreeWayMerge'  // 保留引用以防其他入口使用
-import WelcomePage from '../pages/WelcomePage'
-import KnowledgeOverview from '../pages/KnowledgeOverview'
+import { Skeleton } from '../ui/Skeleton'
+
 import { useProjectStore } from '../../stores/project-store'
 import { useEditorStore, type EditorTab } from '../../stores/editor-store'
 import { useLayoutStore } from '../../stores/layout-store'
-
-
 import { ipc } from '../../services/ipc-client'
 import { persistEditorContent } from '../../services/editor-persistence'
 import { registerEditorFlusher } from '../../services/editor-autosave'
 import { globalEventBus } from '../../shared/event-bus'
 import { toast } from '../ui/Toast'
-
 import { clearChapterTitleCache } from './Sidebar'
 import '../editor/novel-editor.css'
+
+// 编辑器按需加载：首屏只加载当前 Tab，避免把大纲/审稿/合并等重型组件一次性打进主包
+const NovelConfigEditor = lazy(() => import('../editor/NovelConfigEditor'))
+const CharacterEditor = lazy(() => import('../editor/CharacterEditor'))
+const ChapterCardEditor = lazy(() => import('../editor/ChapterCardEditor'))
+const WorldBuildingEditor = lazy(() => import('../editor/WorldBuildingEditor'))
+const ArchFileViewer = lazy(() => import('../editor/ArchFileViewer'))
+const DraftEditor = lazy(() => import('../editor/DraftEditor'))
+const VersionHistory = lazy(() => import('../editor/VersionHistory'))
+const ReviewReport = lazy(() => import('../editor/ReviewReport'))
+const ThreeWayMerge = lazy(() => import('../editor/ThreeWayMerge'))  // 保留引用以防其他入口使用
+const HomeWorkspace = lazy(() => import('../pages/HomeWorkspace'))
+const KnowledgeOverview = lazy(() => import('../pages/KnowledgeOverview'))
+
+/** 懒加载编辑器的统一占位（骨架屏，避免白屏跳动） */
+function EditorFallback() {
+  return (
+    <div className="h-full w-full flex items-center justify-center p-6">
+      <Skeleton className="h-4 w-40" />
+    </div>
+  )
+}
 
 // ─── 正文章节编辑器包装层（含字数信息栏） ─────────────────────────────────────────────
 function ProseEditorWrapper({
@@ -60,7 +70,7 @@ function ProseEditorWrapper({
   }, [tab.id])
 
   /**
-   * 保存（终稿 vela://manuscript/ 走 DB，物理文件走 FS，见 persistEditorContent）。
+   * 保存（终稿 moshu://manuscript/ 走 DB，物理文件走 FS，见 persistEditorContent）。
    * silent=true（自动保存 / 关窗刷盘）时不弹提示，失败直接抛出，由调用方统一处理。
    */
   const handleSave = async (text: string, silent = false) => {
@@ -417,11 +427,12 @@ export default function EditorArea({ onNewProject }: EditorAreaProps) {
   // 侧栏为「主页」时，中间区域显示欢迎页
   if (sidebarView === 'home') {
     return (
-      <WelcomePage
+      <Suspense fallback={<EditorFallback />}>
+        <HomeWorkspace
         onNewProject={() => {
           useLayoutStore.getState().openNewProject()
         }}
-        onOpenProject={async () => {
+        onOpenFolder={async () => {
           const folder = await ipc.invoke('dialog:select-folder')
           if (folder) {
             useProjectStore.getState().openProject(folder)
@@ -431,6 +442,7 @@ export default function EditorArea({ onNewProject }: EditorAreaProps) {
           useLayoutStore.getState().openImportNovel()
         }}
       />
+      </Suspense>
     )
   }
 
@@ -441,22 +453,29 @@ export default function EditorArea({ onNewProject }: EditorAreaProps) {
         className="w-full h-full flex flex-col overflow-hidden"
         style={{ backgroundColor: 'var(--color-editor-bg)' }}
       >
-        <CharacterEditor />
+        <Suspense fallback={<EditorFallback />}>
+          <CharacterEditor />
+        </Suspense>
       </div>
     )
   }
 
   // 侧栏为「知识库」时，中间区域固定展示向量数据库查询界面（跳过 Tab 系统）
   if (sidebarView === 'knowledge') {
-    return <KnowledgeOverview />
+    return (
+      <Suspense fallback={<EditorFallback />}>
+        <KnowledgeOverview />
+      </Suspense>
+    )
   }
 
   // 未打开项目时显示欢迎页
   if (!currentProject) {
     return (
-      <WelcomePage
+      <Suspense fallback={<EditorFallback />}>
+        <HomeWorkspace
         onNewProject={onNewProject}
-        onOpenProject={async () => {
+        onOpenFolder={async () => {
           const folder = await ipc.invoke('dialog:select-folder')
           if (folder) {
             useProjectStore.getState().openProject(folder)
@@ -466,6 +485,7 @@ export default function EditorArea({ onNewProject }: EditorAreaProps) {
           useLayoutStore.getState().openImportNovel()
         }}
       />
+      </Suspense>
     )
   }
 
@@ -625,7 +645,8 @@ export default function EditorArea({ onNewProject }: EditorAreaProps) {
 
       {/* 编辑区主体 */}
       <div className="flex-1 overflow-hidden">
-        {activeTab?.type === 'chapter' && activeTab.filePath?.startsWith('vela://draft/') && (
+        <Suspense fallback={<EditorFallback />}>
+        {activeTab?.type === 'chapter' && activeTab.filePath?.startsWith('moshu://draft/') && (
           // 草稿文件：使用 DraftEditor（工具栏含修稿/审稿/定稿按鈕）
           <DraftEditor
             key={activeTab.id}
@@ -633,7 +654,7 @@ export default function EditorArea({ onNewProject }: EditorAreaProps) {
             content={activeTab.content ?? ''}
           />
         )}
-        {activeTab?.type === 'chapter' && !activeTab.filePath?.startsWith('vela://draft/') && (
+        {activeTab?.type === 'chapter' && !activeTab.filePath?.startsWith('moshu://draft/') && (
           // 【DB 迁移备注】：终稿目前作为物理文件保存在 manuscript/ 目录是合理的（用于外部阅读器或最终打包编译导出）
           // 终稿文件（manuscript/）：用 ProseEditorWrapper（含字数信息栏）
           <ProseEditorWrapper
@@ -672,7 +693,7 @@ export default function EditorArea({ onNewProject }: EditorAreaProps) {
           />
         )}
         {activeTab?.type === 'version-history' && (
-          <VersionHistory />
+          <VersionHistory initialChapterNumber={activeTab.chapterNumber} />
         )}
         {activeTab?.type === 'review-report' && activeTab.content && (
           <ReviewReport
@@ -682,6 +703,7 @@ export default function EditorArea({ onNewProject }: EditorAreaProps) {
             chapterDir={activeTab.chapterDir}
           />
         )}
+        </Suspense>
         {/* diff 合并视图 — 统一使用弹出式 Dialog（与 DraftEditor 一致） */}
         <Dialog
           open={activeTab?.type === 'diff' && !!activeTab.originalContent && !!activeTab.content}
@@ -710,6 +732,7 @@ export default function EditorArea({ onNewProject }: EditorAreaProps) {
             </DialogHeader>
             <div className="flex-1 overflow-hidden" style={{ height: 'calc(85vh - 38px - 1px)' }}>
               {activeTab?.type === 'diff' && activeTab.originalContent && activeTab.content && (
+                <Suspense fallback={<EditorFallback />}>
                 <ThreeWayMerge
                   originalContent={activeTab.originalContent}
                   modifiedContent={activeTab.content}
@@ -760,6 +783,7 @@ export default function EditorArea({ onNewProject }: EditorAreaProps) {
                   }}
                   onCancel={() => useEditorStore.getState().closeTab(activeTab.id)}
                 />
+                </Suspense>
               )}
             </div>
           </DialogContent>

@@ -192,6 +192,43 @@ export class DraftRepository {
         }
     }
 
+    /**
+     * 将指定草稿设为该章唯一正式定稿：
+     * 同章其他 finalized 自动降级为 archived，避免出现多个「已定稿」。
+     * 两步放在同一事务里，任一步失败整体回滚。
+     */
+    static finalizeExclusive(chapterNumber: number, draftId: number, wordCount: number): void {
+        const db = getProjectDb()
+        if (!db) return
+
+        db.transaction(() => {
+            db.prepare(`
+        UPDATE drafts SET status = 'archived', updated_at = datetime('now')
+        WHERE chapter_number = ? AND status = 'finalized' AND id != ?
+      `).run(chapterNumber, draftId)
+
+            db.prepare(`
+        UPDATE drafts SET status = 'finalized', word_count = ?, updated_at = datetime('now')
+        WHERE id = ? AND chapter_number = ?
+      `).run(wordCount, draftId, chapterNumber)
+        })()
+    }
+
+    /**
+     * 取消本章定稿：已定稿的草稿退回 draft，正文与版本历史保留。
+     * 同一章若有多条 finalized（历史脏数据），一并退回，避免残留。
+     */
+    static unfinalize(chapterNumber: number): number {
+      const db = getProjectDb()
+      if (!db) return 0
+
+      const r = db.prepare(`
+        UPDATE drafts SET status = 'draft', updated_at = datetime('now')
+        WHERE chapter_number = ? AND status = 'finalized'
+      `).run(chapterNumber)
+      return r.changes
+    }
+
     /** 更新草稿正文（同时更新 contents 表） */
     static updateContent(id: number, content: string, wordCount: number): void {
         const meta = DraftRepository.getMeta(id)

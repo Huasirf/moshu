@@ -1,4 +1,4 @@
-{
+﻿{
   "storyRevision": {
     "processing": "Waiting for the model or tool · {{seconds}} seconds elapsed",
     "impact": "Impact and preserved content",
@@ -21,7 +21,40 @@
     "home": "Home",
     "project": "Project Structure",
     "knowledge": "Knowledge Base",
-    "characters": "Character Management"
+    "characters": "Character Management",
+    "assets": "Asset Library",
+    "status": "Status",
+    "outline": "Outline Tree"
+  },
+  "outlineTree": {
+    "empty": "No chapter blueprints yet. Generate an outline in Chapter Blueprint first.",
+    "loading": "Loading outline…",
+    "refresh": "Refresh",
+    "chapters": "chapters",
+    "openBlueprint": "Chapter Blueprint",
+    "arc": "Chapters {{start}}–{{end}}",
+    "beats": "Beats",
+    "scenes": "Scenes",
+    "noTitle": "(Untitled)",
+    "words": "Target {{count}} words",
+    "stale": "Stale",
+    "status": {
+      "planned": "Planned",
+      "drafted": "Drafted",
+      "reviewed": "Reviewed",
+      "approved": "Approved",
+      "finalized": "Finalized",
+      "stale": "Stale"
+    },
+    "stage": {
+      "planned": "Planned",
+      "drafted": "Drafted",
+      "deaiified": "De-AI'd",
+      "reviewed": "Reviewed",
+      "approved": "Approved",
+      "finalized": "Finalized",
+      "writeback_done": "Written back"
+    }
   },
   "aiPanel": {
     "title": "AI Assistant",
@@ -54,7 +87,7 @@
     "viewAIDetails": "Click to view AI output details"
   },
   "agent": {
-    "helpTitle": "## Vela AI Assistant — Help",
+    "helpTitle": "## MoShu AI Assistant — Help",
     "availableCommands": "### Available Commands",
     "cmdClear": "/clear — Clear current conversation",
     "cmdNew": "/new — Start a new conversation",
@@ -83,10 +116,10 @@
     "confirmClearBtn": "Confirm Clear",
     "closeAgentPanel": "Close Agent Panel",
     "noMcpServers": "No MCP servers",
-    "mcpConfigHint": "Configure in ~/.vela/mcp_config.json",
+    "mcpConfigHint": "Configure in ~/.moshu/mcp_config.json",
     "mcpToolsRegistered": "{{count}} MCP tool(s) registered",
     "noAvailableSkills": "No available skills",
-    "skillsDirHint": "Place SKILL.md files in ~/.vela/skills/ directory",
+    "skillsDirHint": "Place SKILL.md files in ~/.moshu/skills/ directory",
     "builtin": "Built-in",
     "userScope": "User",
     "projectScope": "Project",
@@ -123,7 +156,27 @@
     "willUpdateConfig": "Will update project config: {{field}}",
     "unknownField": "Unknown field",
     "willExecuteAction": "Will execute: {{tool}}",
-    "referenceContext": "Reference Context",
+    "confirmPlan": {
+      "title": "Change plan",
+      "intent": "Goal",
+      "riskLow": "Low risk",
+      "riskMedium": "Medium risk",
+      "riskHigh": "High risk",
+      "affectedChapters": "Affected chapters: {{chapters}}",
+      "noAffectedChapters": "No existing chapters affected",
+      "stepsTitle": "Steps ({{count}})",
+      "selectAll": "Select all",
+      "selectStep": "Include this step",
+      "skipped": "Unchecked, will be skipped",
+      "field": "Field",
+      "before": "Current",
+      "after": "New",
+      "emptyValue": "(empty)",
+      "noChange": "No content change",
+      "approveSelected": "Run selected steps",
+      "previewFailed": "Cannot read current values; the plan will run as-is"
+    },
+    "referenceContext": "Reference context",
     "commands": "Commands",
     "error": "Error",
     "slash": {
@@ -185,7 +238,7 @@
         "getFailed": "Fetch failed: {{error}}"
       },
       "openEditor": {
-        "desc": "Open a specified file's tab in the Vela editor. Users can view and edit content directly in the editor.",
+        "desc": "Open a specified file's tab in the MoShu editor. Users can view and edit content directly in the editor.",
         "filePathDesc": "File path relative to project root",
         "tabTypeDesc": "Tab type",
         "missingFilePath": "Missing file_path parameter",
@@ -233,6 +286,61 @@
         "listHint": "Use the character_name parameter to read detailed information for a specific character.",
         "readFailed": "Failed to read character list: {{error}}"
       },
+      "readAssets": {
+        "desc": "Read the asset library (items, locations, skills, factions, secrets, numbers). Optionally filter by type; returns name, status, chapter range and summary.",
+        "entityTypeDesc": "Asset type (optional). Omit to return all assets.",
+        "invalidType": "Unknown asset type: {{type}}",
+        "empty": "The asset library is empty; nothing matches.",
+        "listTitle": "Asset library ({{count}})",
+        "readFailed": "Failed to read the asset library: {{error}}"
+      },
+      "readCharacterState": {
+        "desc": "Read a character's attribute state at the end of a chapter (status panel data). Without a character name, returns an overview of all characters.",
+        "entityIdDesc": "Character name (optional). Omit to list all characters.",
+        "chapterNumberDesc": "Chapter number (optional, defaults to chapter 1). Reads the state at the end of that chapter.",
+        "empty": "No characters yet.",
+        "listTitle": "Character state overview (end of chapter {{chapter}})",
+        "noDefs": "Character {{name}} has no displayable attribute definitions.",
+        "noValue": "Not recorded",
+        "title": "Character state: {{name}} (end of chapter {{chapter}})",
+        "readFailed": "Failed to read character state: {{error}}"
+      },
+      "readRelations": {
+        "desc": "Read the entity relation network, optionally filtered by source entity.",
+        "fromIdDesc": "Source entity ID or name (optional). Omit to list all relations.",
+        "empty": "No relations recorded yet.",
+        "title": "Relations ({{count}})",
+        "readFailed": "Failed to read relations: {{error}}"
+      },
+      "readPipeline": {
+        "desc": "Read chapter pipeline stages. Provide a chapter number for one chapter, or omit it for all chapters.",
+        "chapterNumberDesc": "Chapter number (optional). Omit to list all chapters.",
+        "invalidChapter": "Chapter number must be a positive integer.",
+        "empty": "Chapter {{chapter}} has no pipeline state yet.",
+        "emptyAll": "No chapter pipeline states yet.",
+        "title": "Chapter {{chapter}}: {{stage}} (updated {{updatedAt}})",
+        "listTitle": "Chapter pipeline ({{count}} chapters)",
+        "readFailed": "Failed to read the pipeline: {{error}}"
+      },
+      "readReviewFindings": {
+        "desc": "Read the review findings recorded for a chapter.",
+        "chapterNumberDesc": "Chapter number (required).",
+        "statusDesc": "Filter by status (optional).",
+        "invalidChapter": "Chapter number must be a positive integer.",
+        "invalidStatus": "Unknown status: {{status}}",
+        "empty": "No review findings for chapter {{chapter}}.",
+        "title": "Review findings for chapter {{chapter}} ({{count}})",
+        "readFailed": "Failed to read review findings: {{error}}"
+      },
+      "applyMutationPlan": {
+        "desc": "Execute a structured change plan already confirmed by the author (entity-level steps, single transaction, full rollback on any failure). Call only after confirmation.",
+        "planDesc": "MutationPlan: { intent, steps: [{ id, op, title, payload }] }; op must be one of the ops allowed by the system prompt.",
+        "skipDesc": "Step IDs unchecked by the author (optional).",
+        "invalidPlan": "Change plan validation failed: {{errors}}",
+        "reverted": "Execution failed and was fully rolled back: {{error}}",
+        "failedStep": "Failed step: {{step}}",
+        "applied": "Applied {{applied}} steps, skipped {{skipped}}."
+      },
       "readDrafts": {
         "desc": "Read draft content for a specified chapter. Can get different versions like initial draft, revised draft, etc.",
         "chapterNumberDesc": "Chapter number (required)",
@@ -271,7 +379,7 @@
         "foundCount": "Found {{count}} related results:"
       },
       "startWorkflow": {
-        "desc": "Trigger a Vela creative workflow. Supports writing, revision, review, finalization, blueprint generation, and architecture generation workflows. This executes the corresponding multi-step creative process in the AI output panel.",
+        "desc": "Trigger a MoShu creative workflow. Supports writing, revision, review, finalization, blueprint generation, and architecture generation workflows. This executes the corresponding multi-step creative process in the AI output panel.",
         "workflowDesc": "Workflow type",
         "chapterNumberDesc": "Chapter number (required for writing/revision/review/finalization)",
         "missingWorkflow": "Missing workflow parameter",
@@ -291,6 +399,7 @@
         "valueDesc": "New value",
         "missingParams": "Missing field or value parameter",
         "updateFailed": "Configuration update failed",
+        "unsupportedField": "Unsupported configuration field.",
         "updated": "✅ Configuration updated: {{field}} = \"{{value}}\""
       },
       "writeFile": {
@@ -299,6 +408,7 @@
         "contentDesc": "File content to write",
         "missingParams": "Missing file_path or content parameter",
         "writeFailed": "Write failed",
+        "protectedPath": "This path is protected: write_file cannot modify .moshu/ or database files. Use the dedicated data tools instead.",
         "written": "✅ File written: {{path}} ({{count}} characters)"
       }
     },
@@ -457,7 +567,15 @@
     "location": "Place",
     "characters": "Characters",
     "characterSeparator": ", ",
-    "impact": "Impact: {{impact}}"
+    "impact": "Impact: {{impact}}",
+    "pendingTitle": "Pending time points ({{count}})",
+    "pendingHint": "Vague times or minor drift; confirm before they are used in generation or review",
+    "confirm": "Confirm",
+    "reject": "Reject",
+    "statusFailed": "Update failed: {{error}}",
+    "sourceFinalize": "Finalize extract",
+    "sourceManual": "Manual",
+    "timeDay": "Day {{day}}"
   },
   "toolCall": {
     "completed": "Completed",
@@ -517,5 +635,46 @@
     "closeRight": "Close all to the right",
     "closeAll": "Close all",
     "unsavedClickToClose": "Unsaved changes, click to close"
+  },
+  "assets": {
+    "all": "All",
+    "empty": "No assets yet",
+    "refresh": "Refresh",
+    "summary": "Summary",
+    "description": "Description",
+    "tags": "Tags",
+    "chapterRange": "Chapters",
+    "typeData": "Extra fields",
+    "appearances": "Outline appearances",
+    "appearancesEmpty": "Not referenced by any chapter blueprint yet",
+    "appearancesHint": "Click a chapter to open its blueprint",
+    "textAppearances": "Occurrences in text",
+    "textAppearancesEmpty": "No occurrence found in the manuscript",
+    "textAppearancesHint": "Click a chapter to open the text and jump to the first match",
+    "status": {
+      "active": "Active",
+      "inactive": "Inactive",
+      "archived": "Archived"
+    },
+    "types": {
+      "character": "Character",
+      "item": "Item",
+      "location": "Location",
+      "skill": "Skill",
+      "faction": "Faction",
+      "secret": "Secret",
+      "number": "Number"
+    }
+  },
+  "statusPanel": {
+    "chapter": "Chapter",
+    "before": "Before",
+    "after": "After",
+    "refresh": "Refresh",
+    "noValue": "Not set",
+    "noEntities": "No entities available",
+    "noDefs": "No attributes defined",
+    "noDefsHint": "Define attributes to see per-chapter values here",
+    "changedAt": "Ch. {{chapter}} · {{phase}}"
   }
 }

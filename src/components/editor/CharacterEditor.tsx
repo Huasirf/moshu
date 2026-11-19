@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Save, Trash2, Users, Network, Image as ImageIcon, Loader2, RefreshCw, Upload } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useProjectStore } from '../../stores/project-store'
@@ -40,10 +40,42 @@ export default function CharacterEditor() {
   const [portraits, setPortraits] = useState<Record<string, string>>({})
   const [generatingPortrait, setGeneratingPortrait] = useState(false)
   const [uploadingPortrait, setUploadingPortrait] = useState(false)
-
   // 数据由 ProjectService 统一加载，组件只消费 store 数据
 
   const selectedCard = characters.find((c) => c.name === selectedName) || null
+
+  // 角色卡 2.0：字段级状态变更流水（成长轨迹）
+  type HistoryRow = { id: number; chapterNumber: number; field: string; before: unknown; after: unknown }
+  const [history, setHistory] = useState<HistoryRow[]>([])
+  const [historyLoading, setHistoryLoading] = useState(false)
+  const STATE_FIELD_KEYS = ['location', 'powerLevel', 'physicalState', 'mentalState', 'keyItems', 'recentEvents', 'knownInfo', 'talents', 'skills']
+  const stateFieldLabel = (field: string) =>
+    (STATE_FIELD_KEYS.includes(field) ? t(`characterEditor.stateFields.${field}`) : field)
+  const formatHistoryValue = (field: string, value: unknown) => {
+    if (field === 'talents' || field === 'skills') {
+      return Array.isArray(value) && value.length > 0 ? value.join('、') : '—'
+    }
+    const text = value == null ? '' : String(value)
+    return text ? (text.length > 60 ? `${text.slice(0, 60)}…` : text) : '—'
+  }
+
+  const selectedCardName = selectedCard?.name ?? ''
+  const loadHistory = useCallback(async () => {
+    if (!selectedCardName) return
+    setHistoryLoading(true)
+    try {
+      const rows = await ipc.invoke('db:character-history-list', selectedCardName, 60)
+      setHistory(Array.isArray(rows) ? rows : [])
+    } catch {
+      setHistory([])
+    } finally {
+      setHistoryLoading(false)
+    }
+  }, [selectedCardName])
+
+  useEffect(() => {
+    if (viewMode === 'state') loadHistory()
+  }, [viewMode, loadHistory])
 
   // 选中角色变化时，若已有人设图路径则读取为 dataUrl 显示
   useEffect(() => {
@@ -272,6 +304,52 @@ export default function CharacterEditor() {
                   />
                 </div>
               ))}
+              {/* 天赋/技能：结构化数组，每行一项，随剧情变化（区别于固定档案里的「能力」） */}
+              {(['talents', 'skills'] as const).map((field) => (
+                <div key={field}>
+                  <Label>{t(`characterEditor.stateFields.${field}`)} <span className="text-[0.7rem] opacity-50">{t('characterEditor.stateFields.listHint')}</span></Label>
+                  <Textarea
+                    value={(selectedCard.currentState?.[field] ?? []).join('\n')}
+                    onChange={(e) => {
+                      const list = e.target.value.split('\n').map(s => s.trim()).filter(Boolean)
+                      const cs: CharacterCurrentState = {
+                        ...(selectedCard.currentState ?? EMPTY_STATE),
+                        [field]: list,
+                      }
+                      updateField(selectedCard.name, 'currentState', cs)
+                    }}
+                    rows={3}
+                    placeholder={t(`characterEditor.stateFields.${field}Placeholder`)}
+                  />
+                </div>
+              ))}
+            </div>
+
+            {/* 成长轨迹：定稿写回时记录的字段级变更流水 */}
+            <div className="mt-6 pt-4" style={{ borderTop: '1px solid var(--color-border)' }}>
+              <div className="flex items-center justify-between mb-2">
+                <h4 className="text-sm font-semibold text-[var(--color-text)]">{t('characterEditor.growthTitle')}</h4>
+                <Button variant="ghost" size="sm" onClick={loadHistory} disabled={historyLoading}>
+                  {historyLoading ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
+                  {t('characterEditor.growthRefresh')}
+                </Button>
+              </div>
+              {history.length === 0 ? (
+                <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>{t('characterEditor.growthEmpty')}</p>
+              ) : (
+                <div className="space-y-1.5">
+                  {history.slice(0, 30).map((row) => (
+                    <div key={row.id} className="text-xs px-2 py-1.5 rounded" style={{ backgroundColor: 'var(--color-hover)' }}>
+                      <span className="font-medium" style={{ color: 'var(--color-text)' }}>
+                        {t('characterEditor.growthRow', { chapter: row.chapterNumber, field: stateFieldLabel(row.field) })}
+                      </span>
+                      <span style={{ color: 'var(--color-text-secondary)' }}>
+                        {' '}{formatHistoryValue(row.field, row.before)} → {formatHistoryValue(row.field, row.after)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
             {!selectedCard.currentState && (
               <div className="mt-4 p-3 rounded-lg bg-[var(--color-hover)] text-xs text-[var(--color-text-secondary)]">

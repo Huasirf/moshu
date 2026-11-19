@@ -1,12 +1,12 @@
-/**
- * Vela 向量数据库封装 — 基于 LanceDB
+﻿/**
+ * 墨枢 向量数据库封装 — 基于 LanceDB
  *
  * 提供本地嵌入式向量数据库能力，替代旧的 vectors.json 方案。
  * 支持两种检索模式：
  * - FTS-only（BM25 全文检索，零配置默认可用）
  * - 混合检索（FTS + 向量近邻，需要 Embedding 模型）
  *
- * 存储位置：{projectPath}/.vela/lancedb/
+ * 存储位置：{projectPath}/.moshu/lancedb/
  */
 import * as lancedb from '@lancedb/lancedb'
 import { MatchQuery } from '@lancedb/lancedb'
@@ -59,6 +59,8 @@ export interface KBStats {
   totalChunks: number
   vectorDimension: number
   hasVectors: boolean
+  /** 最近一次入库时间（ISO）；空库为 null */
+  lastUpdatedAt: string | null
 }
 
 // ===== 常量 =====
@@ -119,7 +121,7 @@ const FTS_INDEX_VERSION = 2
 const ftsEnsured = new Set<string>()
 
 function ftsMarkerPath(projectPath: string): string {
-  return path.join(projectPath, '.vela', 'fts-index-version')
+  return path.join(projectPath, '.moshu', 'fts-index-version')
 }
 
 /** 标记该项目的 FTS 索引已是当前方案（导入/重建后调用） */
@@ -149,7 +151,7 @@ async function ensureFtsIndex(db: lancedb.Connection, projectPath: string): Prom
   if (tableNames.includes(TABLE_NAME)) {
     const table = await db.openTable(TABLE_NAME)
     await table.createIndex('text', { config: lancedb.Index.fts(FTS_INDEX_CONFIG) })
-    console.log(`[Vela VectorStore] FTS 索引已按 v${FTS_INDEX_VERSION} 方案（ngram 双字组）重建`)
+    console.log(`[MoShu VectorStore] FTS 索引已按 v${FTS_INDEX_VERSION} 方案（ngram 双字组）重建`)
   }
   markFtsCurrent(projectPath)
 }
@@ -160,7 +162,7 @@ const connectionPool = new Map<string, lancedb.Connection>()
 
 /** 获取 LanceDB 连接（惰性创建） */
 export async function getConnection(projectPath: string): Promise<lancedb.Connection> {
-  const dbPath = path.join(projectPath, '.vela', 'lancedb')
+  const dbPath = path.join(projectPath, '.moshu', 'lancedb')
   
   const cached = connectionPool.get(dbPath)
   if (cached) return cached
@@ -176,11 +178,11 @@ export async function getConnection(projectPath: string): Promise<lancedb.Connec
 /**
  * 关闭指定项目的连接。
  * 必须调用底层 close() 释放文件句柄——只从池里删除引用的话，
- * Windows 上旧项目的 .vela/lancedb 目录会一直被句柄锁住（无法删除/备份/同步），
+ * Windows 上旧项目的 .moshu/lancedb 目录会一直被句柄锁住（无法删除/备份/同步），
  * 且多项目切换后句柄随之堆积。
  */
 export function closeConnection(projectPath: string): void {
-  const dbPath = path.join(projectPath, '.vela', 'lancedb')
+  const dbPath = path.join(projectPath, '.moshu', 'lancedb')
   const conn = connectionPool.get(dbPath)
   if (conn) {
     try { conn.close() } catch { /* close 幂等，二次关闭等异常忽略 */ }
@@ -314,7 +316,7 @@ export async function addChunks(
         // overwrite 是一次原子的新版本提交：写入失败时旧表原样保留。
         // （此前先 dropTable 再 createTable，createTable 一旦抛错整张表就没了）
         await db.createTable(TABLE_NAME, [...cleanRows, ...records], { schema: buildChunkSchema(incomingDim), mode: 'overwrite' })
-        console.log(`[Vela VectorStore] Embedding 维度变化(${existingDim}→${incomingDim})，已重建向量表，旧向量待重新回填`)
+        console.log(`[MoShu VectorStore] Embedding 维度变化(${existingDim}→${incomingDim})，已重建向量表，旧向量待重新回填`)
       } else {
         // 旧表缺字段，重建补齐；沿用本批/既有维度
         // 先把 Arrow Vector 对象转成纯 number[]，避免 isValid 等元数据字段干扰 schema 校验
@@ -370,12 +372,12 @@ export async function addChunks(
       })
       markFtsCurrent(projectPath)
     } catch (e) {
-      console.warn('[Vela VectorStore] FTS 索引创建失败（检索将走 LIKE 兜底）:', e)
+      console.warn('[MoShu VectorStore] FTS 索引创建失败（检索将走 LIKE 兜底）:', e)
     }
 
     return { success: true, chunkCount: chunks.length }
   } catch (error) {
-    console.error('[Vela VectorStore] 写入失败:', error)
+    console.error('[MoShu VectorStore] 写入失败:', error)
     return { success: false, chunkCount: 0, error: String(error) }
   }
 }
@@ -405,7 +407,7 @@ export async function removeDocument(
 
     return true
   } catch (error) {
-    console.error('[Vela VectorStore] 删除失败:', error)
+    console.error('[MoShu VectorStore] 删除失败:', error)
     return false
   }
 }
@@ -508,7 +510,7 @@ async function likeFallbackSearch(
       fileName: r.fileName,
     }))
   } catch (e) {
-    console.warn('[Vela VectorStore] LIKE 兜底检索失败:', e)
+    console.warn('[MoShu VectorStore] LIKE 兜底检索失败:', e)
     return []
   }
 }
@@ -540,7 +542,7 @@ export async function searchWithScope(
     if (chapterScope) {
       const filter = buildChapterScopeFilter(chapterScope)
       if (!filter) {
-        console.warn('[Vela VectorStore] 章节范围不是整数，已拒绝检索:', chapterScope)
+        console.warn('[MoShu VectorStore] 章节范围不是整数，已拒绝检索:', chapterScope)
         return []
       }
       scopeFilter = filter
@@ -557,7 +559,7 @@ export async function searchWithScope(
     try {
       await ensureFtsIndex(db, projectPath)
     } catch (e) {
-      console.warn('[Vela VectorStore] FTS 索引迁移失败，本次检索走兜底:', e)
+      console.warn('[MoShu VectorStore] FTS 索引迁移失败，本次检索走兜底:', e)
     }
 
     const trimmed = (queryText || '').trim()
@@ -568,7 +570,7 @@ export async function searchWithScope(
       try {
         ftsResults = await ftsSearch(table, trimmed, topK, scopeFilter)
       } catch (e) {
-        console.warn('[Vela VectorStore] FTS 检索失败，回退 LIKE:', e)
+        console.warn('[MoShu VectorStore] FTS 检索失败，回退 LIKE:', e)
       }
     }
 
@@ -593,7 +595,7 @@ export async function searchWithScope(
 
     return likeFallbackSearch(table, trimmed, topK, scopeFilter)
   } catch (error) {
-    console.error('[Vela VectorStore] 检索失败:', error)
+    console.error('[MoShu VectorStore] 检索失败:', error)
     return []
   }
 }
@@ -647,12 +649,23 @@ export async function getStats(projectPath: string): Promise<KBStats> {
     const tableNames = await db.tableNames()
 
     if (!tableNames.includes(TABLE_NAME)) {
-      return { documentCount: 0, totalChunks: 0, vectorDimension: 0, hasVectors: false }
+      return { documentCount: 0, totalChunks: 0, vectorDimension: 0, hasVectors: false, lastUpdatedAt: null }
     }
 
-    const docs = tableNames.includes(DOCS_TABLE_NAME)
-      ? await (await db.openTable(DOCS_TABLE_NAME)).countRows()
-      : 0
+    let docs = 0
+    let lastUpdatedAt: string | null = null
+    if (tableNames.includes(DOCS_TABLE_NAME)) {
+      try {
+        const docsTable = await db.openTable(DOCS_TABLE_NAME)
+        docs = await docsTable.countRows()
+        const rows = await docsTable.query().select(['importedAt']).toArray() as Array<{ importedAt?: string }>
+        for (const row of rows) {
+          if (row.importedAt && (!lastUpdatedAt || row.importedAt > lastUpdatedAt)) lastUpdatedAt = row.importedAt
+        }
+      } catch {
+        // docs 表读取失败时仍返回块数，不阻塞统计
+      }
+    }
 
     const table = await db.openTable(TABLE_NAME)
     const totalChunks = await table.countRows()
@@ -674,9 +687,10 @@ export async function getStats(projectPath: string): Promise<KBStats> {
       totalChunks,
       vectorDimension,
       hasVectors,
+      lastUpdatedAt,
     }
   } catch {
-    return { documentCount: 0, totalChunks: 0, vectorDimension: 0, hasVectors: false }
+    return { documentCount: 0, totalChunks: 0, vectorDimension: 0, hasVectors: false, lastUpdatedAt: null }
   }
 }
 
@@ -712,7 +726,7 @@ export async function getChunksWithoutVectors(
     })
     return { count: missing.length }
   } catch (e) {
-    console.error('[Vela KB] getChunksWithoutVectors error:', e)
+    console.error('[MoShu KB] getChunksWithoutVectors error:', e)
     return { count: 0 }
   }
 }
@@ -789,7 +803,7 @@ export async function updateChunkVectors(
             values: { vector: update.vector },
           })
         } catch (e) {
-          console.warn(`[Vela VectorStore] 更新块 ${update.id} 向量失败:`, e)
+          console.warn(`[MoShu VectorStore] 更新块 ${update.id} 向量失败:`, e)
         }
       }
       return { success: true, count: updates.length }
@@ -826,12 +840,12 @@ export async function updateChunkVectors(
       await newTable.createIndex('text', { config: lancedb.Index.fts(FTS_INDEX_CONFIG) })
       markFtsCurrent(projectPath)
     } catch (e) {
-      console.warn('[Vela VectorStore] 回填覆写后 FTS 重建失败:', e)
+      console.warn('[MoShu VectorStore] 回填覆写后 FTS 重建失败:', e)
     }
 
     return { success: true, count: updates.length }
   } catch (error) {
-    console.error('[Vela VectorStore] 批量更新向量失败:', error)
+    console.error('[MoShu VectorStore] 批量更新向量失败:', error)
     return { success: false, count: 0 }
   }
 }
@@ -842,14 +856,14 @@ export async function updateChunkVectors(
 export async function migrateFromJSON(
   projectPath: string,
 ): Promise<{ success: boolean; migrated: number; error?: string }> {
-  const jsonPath = path.join(projectPath, '.vela', 'vectors.json')
+  const jsonPath = path.join(projectPath, '.moshu', 'vectors.json')
   
   if (!fs.existsSync(jsonPath)) {
     return { success: true, migrated: 0 }
   }
 
   try {
-    console.log('[Vela VectorStore] 检测到旧 vectors.json，开始迁移...')
+    console.log('[MoShu VectorStore] 检测到旧 vectors.json，开始迁移...')
     const raw = fs.readFileSync(jsonPath, 'utf-8')
     const store = JSON.parse(raw) as {
       documents: Array<{ id: string; fileName: string; importedAt: string; chunkCount: number; filePath: string }>
@@ -891,11 +905,11 @@ export async function migrateFromJSON(
 
     // 迁移完成，重命名旧文件
     fs.renameSync(jsonPath, jsonPath + '.migrated')
-    console.log(`[Vela VectorStore] 迁移完成：${migrated} 个块已写入 LanceDB`)
+    console.log(`[MoShu VectorStore] 迁移完成：${migrated} 个块已写入 LanceDB`)
     
     return { success: true, migrated }
   } catch (error) {
-    console.error('[Vela VectorStore] 迁移失败:', error)
+    console.error('[MoShu VectorStore] 迁移失败:', error)
     return { success: false, migrated: 0, error: String(error) }
   }
 }

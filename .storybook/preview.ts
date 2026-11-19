@@ -1,4 +1,4 @@
-import type { Preview } from '@storybook/react'
+﻿import type { Preview } from '@storybook/react'
 import '../src/index.css'
 
 const themes = ['light', 'galaxy', 'paper', 'dark'] as const
@@ -40,7 +40,7 @@ const preview: Preview = {
   globalTypes: {
     theme: {
       name: 'Theme',
-      description: 'Vela theme for preview',
+      description: '墨枢 theme for preview',
       defaultValue: 'light',
       toolbar: {
         icon: 'circlehollow',

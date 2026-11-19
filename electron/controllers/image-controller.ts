@@ -1,4 +1,4 @@
-import { ipcMain, dialog } from 'electron'
+﻿import { ipcMain, dialog } from 'electron'
 import fs, { promises as fsPromises } from 'node:fs'
 import path from 'node:path'
 import { readJsonFile, GLOBAL_CONFIG_PATH, DEFAULT_GLOBAL_CONFIG } from '../utils/config-utils'
@@ -58,22 +58,22 @@ function detectImage(buf: Buffer): { ext: string; mime: string } {
   return { ext: 'png', mime: 'image/png' }
 }
 
-/** 项目图片目录 {projectPath}/.vela/images（需可写） */
+/** 项目图片目录 {projectPath}/.moshu/images（需可写） */
 function resolveImageDir(projectPath: string): string {
-  return assertPathAccess(path.join(projectPath, '.vela', 'images'), 'write')
+  return assertPathAccess(path.join(projectPath, '.moshu', 'images'), 'write')
 }
 
 /**
  * 定位要读取的图片。库里存的是绝对路径：项目被移动或复制后，旧路径可能已不存在或不在可读范围内，
- * 此时按文件名到当前项目的 .vela/images 里找同名文件。
+ * 此时按文件名到当前项目的 .moshu/images 里找同名文件。
  */
 function locateImageForRead(filePath: string): string {
   const check = checkPathAccess(filePath, 'read')
   if (check.ok && fs.existsSync(check.path)) return check.path
 
   const projectPath = getCurrentProjectPath()
-  if (projectPath && typeof filePath === 'string' && /[\\/]\.vela[\\/]images[\\/][^\\/]+$/.test(filePath)) {
-    const candidate = path.join(projectPath, '.vela', 'images', path.basename(filePath))
+  if (projectPath && typeof filePath === 'string' && /[\\/]\.moshu[\\/]images[\\/][^\\/]+$/.test(filePath)) {
+    const candidate = path.join(projectPath, '.moshu', 'images', path.basename(filePath))
     if (fs.existsSync(candidate)) return candidate
   }
   if (!check.ok) throw new PathAccessError(check.error)
@@ -83,7 +83,7 @@ function locateImageForRead(filePath: string): string {
 export function registerImageController() {
   /**
    * 文生图：调用 OpenAI 兼容 / SiliconFlow 图片接口，
-   * 拿到图片后存到 {projectPath}/.vela/images/，返回本地路径 + base64 data URL 供即时显示。
+   * 拿到图片后存到 {projectPath}/.moshu/images/，返回本地路径 + base64 data URL 供即时显示。
    */
   ipcMain.handle('image:generate', async (_event, payload: {
     model: ModelProfile
@@ -181,7 +181,7 @@ export function registerImageController() {
   })
 
   /**
-   * 手动导入图片：弹出文件选择框，把用户选中的图片复制到 {projectPath}/.vela/images/，
+   * 手动导入图片：弹出文件选择框，把用户选中的图片复制到 {projectPath}/.moshu/images/，
    * 返回本地路径 + base64 data URL。用于直接使用官方设定图等外部素材作为人设图，
    * 相比文生图可获得完全准确、跨章节一致的形象。
    */

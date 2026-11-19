@@ -38,6 +38,23 @@ export interface DirectoryWorkflowParams {
 // 2. 蓝图文件访问与工具函数
 // ==========================================
 
+/** 分卷表之后的逐章细纲属于写作阶段数据，蓝图生成只需卷级主线，避免 prompt 被 105 章表格撑爆。 */
+export function extractVolumePlan(coreOutline: string): string {
+  const cut = coreOutline.indexOf('# V1 逐章')
+  return (cut > 0 ? coreOutline.slice(0, cut) : coreOutline).trim()
+}
+
+/** 只抽取判定类章节（等级/试炼/月供/铁律），跳过人物群像等与蓝图规则无关的长段。 */
+export function extractWorldRuleSections(worldSetting: string): string {
+  const start = worldSetting.indexOf('【等级与四维】')
+  const end = worldSetting.indexOf('【万族与人族格局】')
+  const tail = worldSetting.indexOf('【这本书的铁律与禁忌】')
+  const blocks: string[] = []
+  if (start >= 0 && end > start) blocks.push(worldSetting.slice(start, end))
+  if (tail >= 0) blocks.push(worldSetting.slice(tail))
+  return (blocks.length ? blocks.join('\n\n') : worldSetting).trim()
+}
+
 export function parseTextBlueprints(content: string, startNum: number, endNum: number): ChapterBlueprint[] {
   const clean = stripThinkingTags(content).replace(/```(?:json)?\s*/gi, '').trim()
   let parsed: unknown
@@ -82,6 +99,8 @@ export function parseTextBlueprints(content: string, startNum: number, endNum: n
       purpose: String(p.purpose || ''), keyEvents,
       characters: Array.isArray(p.characters) ? p.characters.filter((c): c is string => typeof c === 'string') : [],
       suspenseHook: String(p.suspenseHook || p.suspense_hook || ''),
+      // 属性账与试炼参数必须随蓝图落库，写作阶段才能按账执行而不是让模型临场发挥。
+      userGuidance: String(p.userGuidance || p.user_guidance || ''),
     })
   }
   return [...distinct.values()].sort((a, b) => a.chapterNumber - b.chapterNumber)
@@ -145,6 +164,20 @@ export function createDirectoryWorkflow(params: DirectoryWorkflowParams = { mode
           if (core.synopsis && core.synopsis.length > 50) parts.push(core.synopsis)
 
           if (parts.length === 0) throw new Error(t('workflowDefs.dirArchNotGenerated'))
+
+          // 蓝图生成必须携带规则区、判定口径与分卷主线，否则模型只能凭架构池自由发挥，
+          // 会重新写出「满编份额」「极境」「颜色绑等级」等已废弃设定。
+          if (core.rulebook) {
+            parts.push(`【试炼与等级硬规则（最高优先级，任何章节不得违反）】\n${core.rulebook}`)
+          }
+          if (core.worldSetting) {
+            const rules = extractWorldRuleSections(core.worldSetting)
+            if (rules) parts.push(`【世界判定口径】\n${rules}`)
+          }
+          if (core.coreOutline) {
+            const volumePlan = extractVolumePlan(core.coreOutline)
+            if (volumePlan) parts.push(`【分卷主线（章节必须落在对应卷的章号段内）】\n${volumePlan}`)
+          }
 
           context.data.architecture = parts.join('\n\n---\n\n')
           // 注入节奏指导到 context，供 Command 读取

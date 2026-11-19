@@ -1,6 +1,7 @@
-import i18n from 'i18next'
+﻿import i18n from 'i18next'
 import { initReactI18next } from 'react-i18next'
 
+// 中文是兜底语言：首屏只同步加载它，en / ru 在切换或检测到语言时按需加载
 import zhCNCommon from './locales/zh-CN/common.json'
 import zhCNDialogs from './locales/zh-CN/dialogs.json'
 import zhCNEditors from './locales/zh-CN/editors.json'
@@ -11,27 +12,66 @@ import zhCNStores from './locales/zh-CN/stores.json'
 import zhCNSettings from './locales/zh-CN/settings.json'
 import zhCNCommands from './locales/zh-CN/commands.json'
 
-import enCommon from './locales/en/common.json'
-import enDialogs from './locales/en/dialogs.json'
-import enEditors from './locales/en/editors.json'
-import enPanels from './locales/en/panels.json'
-import enLayout from './locales/en/layout.json'
-import enPages from './locales/en/pages.json'
-import enStores from './locales/en/stores.json'
-import enSettings from './locales/en/settings.json'
-import enCommands from './locales/en/commands.json'
+export type SupportedLocale = 'zh-CN' | 'en' | 'ru'
 
-import ruCommon from './locales/ru/common.json'
-import ruDialogs from './locales/ru/dialogs.json'
-import ruEditors from './locales/ru/editors.json'
-import ruPanels from './locales/ru/panels.json'
-import ruLayout from './locales/ru/layout.json'
-import ruPages from './locales/ru/pages.json'
-import ruStores from './locales/ru/stores.json'
-import ruSettings from './locales/ru/settings.json'
-import ruCommands from './locales/ru/commands.json'
+export const SUPPORTED_LOCALES: SupportedLocale[] = ['zh-CN', 'en', 'ru']
 
 const isBrowser = typeof window !== 'undefined' && typeof document !== 'undefined'
+
+/** 每个语言一个动态 chunk，避免首屏加载其余语言 */
+const localeLoaders: Record<Exclude<SupportedLocale, 'zh-CN'>, () => Promise<Record<string, unknown>>> = {
+  en: async () => ({
+    common: (await import('./locales/en/common.json')).default,
+    dialogs: (await import('./locales/en/dialogs.json')).default,
+    editors: (await import('./locales/en/editors.json')).default,
+    panels: (await import('./locales/en/panels.json')).default,
+    layout: (await import('./locales/en/layout.json')).default,
+    pages: (await import('./locales/en/pages.json')).default,
+    stores: (await import('./locales/en/stores.json')).default,
+    settings: (await import('./locales/en/settings.json')).default,
+    commands: (await import('./locales/en/commands.json')).default,
+  }),
+  ru: async () => ({
+    common: (await import('./locales/ru/common.json')).default,
+    dialogs: (await import('./locales/ru/dialogs.json')).default,
+    editors: (await import('./locales/ru/editors.json')).default,
+    panels: (await import('./locales/ru/panels.json')).default,
+    layout: (await import('./locales/ru/layout.json')).default,
+    pages: (await import('./locales/ru/pages.json')).default,
+    stores: (await import('./locales/ru/stores.json')).default,
+    settings: (await import('./locales/ru/settings.json')).default,
+    commands: (await import('./locales/ru/commands.json')).default,
+  }),
+}
+
+const loadedLocales = new Set<string>(['zh-CN'])
+
+/** 按需加载某个语言的资源（幂等、可并发调用） */
+export async function ensureLocale(lng: string): Promise<void> {
+  if (loadedLocales.has(lng)) return
+  const loader = localeLoaders[lng as Exclude<SupportedLocale, 'zh-CN'>]
+  if (!loader) return
+  try {
+    const bundles = await loader()
+    for (const [ns, resource] of Object.entries(bundles)) {
+      i18n.addResourceBundle(lng, ns, resource, true, true)
+    }
+    loadedLocales.add(lng)
+  } catch (err) {
+    console.error('[i18n] failed to load locale', lng, err)
+  }
+}
+
+/** 首屏语言：localStorage 优先，其次浏览器语言，兜底中文 */
+export function resolveInitialLanguage(): SupportedLocale {
+  if (!isBrowser) return 'zh-CN'
+  const stored = window.localStorage.getItem('moshu-locale') ?? window.localStorage.getItem('vela-locale')
+  if (stored === 'en' || stored === 'ru' || stored === 'zh-CN') return stored
+  const nav = (navigator.language || '').toLowerCase()
+  if (nav.startsWith('ru')) return 'ru'
+  if (nav.startsWith('en')) return 'en'
+  return 'zh-CN'
+}
 
 const i18nConfig: Parameters<typeof i18n.init>[0] = {
   resources: {
@@ -46,29 +86,8 @@ const i18nConfig: Parameters<typeof i18n.init>[0] = {
       settings: zhCNSettings,
       commands: zhCNCommands,
     },
-    en: {
-      common: enCommon,
-      dialogs: enDialogs,
-      editors: enEditors,
-      panels: enPanels,
-      layout: enLayout,
-      pages: enPages,
-      stores: enStores,
-      settings: enSettings,
-      commands: enCommands,
-    },
-    ru: {
-      common: ruCommon,
-      dialogs: ruDialogs,
-      editors: ruEditors,
-      panels: ruPanels,
-      layout: ruLayout,
-      pages: ruPages,
-      stores: ruStores,
-      settings: ruSettings,
-      commands: ruCommands,
-    },
   },
+  lng: 'zh-CN',
   fallbackLng: 'zh-CN',
   ns: ['common', 'dialogs', 'editors', 'panels', 'layout', 'pages', 'stores', 'settings', 'commands'],
   defaultNS: 'common',
@@ -89,21 +108,30 @@ if (isBrowser) {
 
   i18nConfig.detection = {
     order: ['localStorage'],
-    lookupLocalStorage: 'vela-locale',
+    lookupLocalStorage: 'moshu-locale',
     caches: ['localStorage'],
   }
 }
 
 i18n.init(i18nConfig)
 
+// 切换语言时按需拉取资源；加载完成后重新广播一次，保证界面立即刷新
+i18n.on('languageChanged', (lng) => {
+  if (!loadedLocales.has(lng)) {
+    void ensureLocale(lng).then(() => {
+      if (i18n.language === lng) i18n.emit('languageChanged', lng)
+    })
+  }
+})
+
 // Update HTML lang attribute when language changes (browser only)
 if (isBrowser) {
   i18n.on('languageChanged', (lng) => {
     document.documentElement.lang = lng === 'ru' ? 'ru' : lng === 'en' ? 'en' : 'zh-CN'
     const titles: Record<string, string> = {
-      'ru': 'Vela — ИИ-редактор для написания романов',
-      'en': 'Vela — AI Novel Writing IDE',
-      'zh-CN': 'Vela — AI 小说创作 IDE',
+      'ru': 'MoShu — ИИ-редактор для написания романов',
+      'en': 'MoShu — AI Novel Writing IDE',
+      'zh-CN': '墨枢 MoShu — AI 小说创作 IDE',
     }
     document.title = titles[lng] || titles['zh-CN']
   })

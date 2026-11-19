@@ -11,9 +11,20 @@
     "createProject": "Create Project",
     "creating": "Creating..."
   },
+  "assetProposal": {
+    "title": "Confirm inferred story assets",
+    "description": "The following settings were inferred by AI from the text. Confirm before writing. Chapter outlines and beats have been added automatically.",
+    "worldTitle": "Worldbuilding & story architecture",
+    "charactersTitle": "Characters ({{count}})",
+    "empty": "Nothing inferred this time",
+    "moreCharacters": "··· {{count}} more ···",
+    "autoNote": "Relationship descriptions are saved with the character cards; MoShu never infers structured relations from prose.",
+    "skip": "Skip settings, keep outlines only",
+    "apply": "Confirm and write"
+  },
   "importNovel": {
     "title": "Import Existing Novel",
-    "description": "Select novel files and Vela will automatically split chapters and reverse-engineer all structured data via AI.",
+    "description": "Select novel files and MoShu will automatically split chapters and reverse-engineer all structured data via AI.",
     "selectFile": "Select novel files",
     "filesSelected": "{{count}} file(s) selected",
     "supportedFormats": "Supports .txt / .md files (single or multiple)",
@@ -185,5 +196,28 @@
       "writingRequirements": "Global Writing Requirements",
       "subGenre": "Sub-genre"
     }
+  },
+  "projectManager": {
+    "title": "Project Manager",
+    "description": "Manage recently opened novel projects. Deleting moves the entire project folder to the system recycle bin.",
+    "empty": "No recent projects",
+    "current": "Current",
+    "open": "Open",
+    "reveal": "Show in folder",
+    "revealFailed": "Cannot open folder: {{error}}",
+    "removeRecent": "Remove from list",
+    "removeTitle": "Remove from Recent",
+    "removeConfirm": "Remove \"{{name}}\" from the recent projects list?\n\nThe project files on disk will not be deleted.",
+    "removeSuccess": "Removed from recent list",
+    "removeFailed": "Failed to remove",
+    "delete": "Delete project",
+    "deleteTitle": "Delete Project",
+    "deleteConfirm": "Delete \"{{name}}\"?\n\nProject folder: {{path}}\n\nThe entire folder will be moved to the system recycle bin. If this is the currently open project, it will be closed first.",
+    "deleteConfirmButton": "Move to Recycle Bin",
+    "deleteSuccess": "Project moved to the recycle bin",
+    "deleteMissing": "Folder no longer exists; removed from recent list",
+    "deleteFailed": "Delete failed: {{error}}",
+    "deleteHint": "Deleting moves the project folder, including its database, chapters and backups, to the system recycle bin. You can restore it from there if needed.",
+    "close": "Close"
   }
 }

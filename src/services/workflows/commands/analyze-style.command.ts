@@ -94,6 +94,33 @@ export class AnalyzeWritingStyleCommand extends BaseWorkflowCommand<string> {
     const { updateNovelConfig, saveProject } = useProjectStore.getState()
     updateNovelConfig({ styleReference: cleanResult })
     await saveProject()
+
+    // P4-2：同步沉淀到风格档案（style_profiles），写作与去味时自动注入
+    try {
+      const active = await ipc.invoke('db:style-get-active') as
+        { id: number; name: string; rules: string[]; promptHint: string } | null
+      if (active) {
+        await ipc.invoke('db:style-update', active.id, {
+          name: active.name,
+          rules: active.rules,
+          promptHint: cleanResult,
+          isActive: true,
+        })
+        callbacks.log(t('analyzeStyle.profileUpdated', { name: active.name }))
+      } else {
+        const name = t('analyzeStyle.defaultProfileName')
+        await ipc.invoke('db:style-create', {
+          name,
+          rules: [],
+          promptHint: cleanResult,
+          isActive: true,
+        })
+        callbacks.log(t('analyzeStyle.profileCreated', { name }))
+      }
+    } catch (e) {
+      callbacks.log(t('analyzeStyle.profileSaveFailed', { error: String(e) }))
+    }
+
     callbacks.log(t('analyzeStyle.saved'))
 
     return cleanResult

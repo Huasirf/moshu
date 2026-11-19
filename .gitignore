@@ -60,3 +60,17 @@ novels/
 
 # Local UI regression artifacts
 .test-output/
+
+# 从 Vela 旧仓库迁移过来的未合并改动备份（仅供比对，不入库）
+_legacy/
+
+# 本地 AI 工具产物与个人创作数据（绝不入库）
+.tmp/
+.trae/
+.screenshots/
+.launcher/
+outline-base.txt
+*.xlsx
+
+# 原作者收款码等素材（本仓库不用于募捐）
+public/buyme/

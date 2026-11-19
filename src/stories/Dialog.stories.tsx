@@ -1,4 +1,4 @@
-import type { Meta, StoryObj } from '@storybook/react' // eslint-disable-line storybook/no-renderer-packages
+﻿import type { Meta, StoryObj } from '@storybook/react' // eslint-disable-line storybook/no-renderer-packages
 import { useState } from 'react'
 import {
   Dialog,
@@ -12,7 +12,7 @@ import {
 import { Button } from '../components/ui/Button'
 
 const meta = {
-  title: 'Vela UI/Dialog',
+  title: 'MoShu UI/Dialog',
   component: Dialog,
   tags: ['autodocs'],
   parameters: {

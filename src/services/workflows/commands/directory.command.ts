@@ -5,6 +5,10 @@ import { DirectoryPromptBuilder } from '../../prompts/prompt-builder'
 import { DirectoryWorkflowParams, ChapterBlueprint, parseTextBlueprints, saveAllBlueprints } from '../directory-workflow'
 import i18n from '../../../i18n'
 import { globalEventBus } from '../../../shared/event-bus'
+import {
+  parseAttributeLedger, validateBlueprintLedger, validateBlueprintText, summarizeIssues,
+  type AttributeLedger, type BlueprintRuleIssue,
+} from '../../narrative-consistency/blueprint-rule-guard'
 
 export class GenerateDirectoryCommand extends BaseWorkflowCommand<ChapterBlueprint[]> {
   constructor(private params: DirectoryWorkflowParams) {
@@ -57,6 +61,11 @@ export class GenerateDirectoryCommand extends BaseWorkflowCommand<ChapterBluepri
     const batchSize = Math.min(20, Math.max(1, Math.floor(outputBudget / tokensPerChapter)))
 
     const newBlueprints: ChapterBlueprint[] = []
+    // 属性账游标：跨批次传递上一章章末四维，防止模型每批都从零记账。
+    const lastExisting = [...existingBlueprints].sort((a, b) => b.chapterNumber - a.chapterNumber)[0]
+    let ledgerCursor: AttributeLedger['after'] | null = lastExisting
+      ? parseAttributeLedger(lastExisting.userGuidance || '')?.after ?? null
+      : (startChapter === 1 ? [10, 1, 1, 1] : null)
     // 使用游标追踪生成进度，支持 AI 超额返回时智能跳过后续批次
     let cursor = startChapter
 
@@ -96,6 +105,10 @@ export class GenerateDirectoryCommand extends BaseWorkflowCommand<ChapterBluepri
           .build()
       }
 
+      if (ledgerCursor) {
+        prompt += `\n\n【本章起始属性账（硬约束，优先级高于一切文风要求）】\n上一章出=${ledgerCursor.join('/')}（顺序：心识/体魄/力量/敏捷）。本轮第${cursor}章的【属性账】“进”必须逐项等于该值；全书第一章的起始值为10/1/1/1。`
+      }
+
       callbacks.setProgress(Math.round(((cursor - startChapter) / (endChapter - startChapter + 1)) * 90))
 
       // systemRole 由模板定义，不再硬编码
@@ -111,6 +124,22 @@ export class GenerateDirectoryCommand extends BaseWorkflowCommand<ChapterBluepri
       if (parsed.some((bp, index) => bp.chapterNumber !== cursor + index)) {
         throw new Error(i18n.t('directory.missingChapters', { ns: 'commands', from: cursor, to: batchEnd }))
       }
+      // ==== 规则闸门：属性账断链/1/4铁律/废弃术语 ====
+      const batchIssues: BlueprintRuleIssue[] = []
+      let probe = ledgerCursor
+      for (const bp of parsed) {
+        batchIssues.push(...validateBlueprintText(bp.chapterNumber, bp))
+        const checked = validateBlueprintLedger(bp.chapterNumber, bp.userGuidance || '', probe, bp.chapterNumber <= 3)
+        batchIssues.push(...checked.issues)
+        if (checked.ledger) probe = checked.ledger.after
+      }
+      if (batchIssues.some(issue => issue.level === 'error')) {
+        callbacks.log(`规则闸门拦截：\n${summarizeIssues(batchIssues)}`)
+        throw new Error(`BLUEPRINT_RULE_VIOLATION:\n${summarizeIssues(batchIssues)}`)
+      }
+      if (batchIssues.length) callbacks.log(`规则提示：\n${summarizeIssues(batchIssues)}`)
+      if (probe) ledgerCursor = probe
+
       newBlueprints.push(...parsed)
 
       // ==== 批次入库 ====

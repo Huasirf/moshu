@@ -1,8 +1,10 @@
 // @see - https://www.electron.build/configuration/configuration
 {
   "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
-  "appId": "com.vela.ide",
-  "asar": true,
+  "appId": "com.moshu.ide",
+  // pnpm 的可选原生包（@lancedb/lancedb-win32-x64-msvc）无法被 asarUnpack 正确解包，
+  // 开启 asar 会导致打包后找不到 .node、应用启动即崩；这里统一关闭 asar。
+  "asar": false,
   "asarUnpack": [
     "node_modules/apache-arrow/**/*",
     "node_modules/better-sqlite3/**/*",
@@ -10,7 +12,7 @@
     "node_modules/@lancedb/lancedb-linux-*/**/*",
     "node_modules/@lancedb/lancedb-win32-*/**/*"
   ],
-  "productName": "Vela",
+  "productName": "墨枢",
   "directories": {
     "output": "release/${version}"
   },
@@ -18,7 +20,12 @@
     "dist",
     "dist-electron",
     "build",
-    "public/buyme"
+    // pnpm 不会把 lancedb 的可选平台包提升到 node_modules/@lancedb，
+    // 这里显式映射，否则打包后缺少 .node，应用启动即崩
+    {
+      "from": "node_modules/.pnpm/@lancedb+lancedb-win32-x64-msvc@0.27.2/node_modules/@lancedb/lancedb-win32-x64-msvc",
+      "to": "node_modules/@lancedb/lancedb-win32-x64-msvc"
+    }
   ],
   "mac": {
     "target": ["dmg"],

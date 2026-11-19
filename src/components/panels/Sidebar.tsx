@@ -16,6 +16,9 @@ import CharactersView from './sidebar/CharactersView'
 import ForeshadowingView from './sidebar/ForeshadowingView'
 import SearchView from './sidebar/SearchView'
 import TimelineView from './sidebar/TimelineView'
+import AssetLibraryView from './sidebar/AssetLibraryView'
+import StatusPanelView from './sidebar/StatusPanelView'
+import OutlineTreeView from './sidebar/OutlineTreeView'
 import {
   registerMenuSetter, unregisterMenuSetter,
   type SidebarMenuState,
@@ -42,6 +45,9 @@ export default function Sidebar() {
     foreshadowing: t('sidebar.foreshadowing'),
     timeline:   t('sidebar.timeline'),
     search:     t('sidebar.search'),
+    assets:     t('sidebar.assets'),
+    status:     t('sidebar.status'),
+    outline:    t('sidebar.outline'),
   }
 
   // 搜索 / 时间线自己滚动结果区，顶部的输入框固定不动
@@ -66,6 +72,9 @@ export default function Sidebar() {
         {sidebarView === 'foreshadowing' && <ForeshadowingView />}
         {sidebarView === 'timeline'   && <TimelineView />}
         {sidebarView === 'search'     && <SearchView />}
+        {sidebarView === 'assets'     && <AssetLibraryView />}
+        {sidebarView === 'status'     && <StatusPanelView />}
+        {sidebarView === 'outline'    && <OutlineTreeView />}
       </div>
 
       {/* 动态右键菜单 */}

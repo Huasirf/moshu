@@ -212,7 +212,7 @@ export default function BatchGenerateDialog({ isOpen, onClose }: Props) {
                     onChange={(ev) => setReviewMaxRounds(Math.max(1, Math.min(5, parseInt(ev.target.value) || 1)))}
                     className="w-14 h-6 text-xs px-2 py-0"
                   />
-                  轮
+                  轮审稿（含终审；实际修复次数 = 轮数 − 1）
                 </span>
                 <span className="flex items-center gap-1.5 text-xs" style={{ color: 'var(--color-text-muted)' }}>
                   门控

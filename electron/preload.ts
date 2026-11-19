@@ -1,11 +1,11 @@
-import { ipcRenderer, contextBridge, webFrame } from 'electron'
+﻿import { ipcRenderer, contextBridge, webFrame } from 'electron'
 import { INVOKE_CHANNELS, EVENT_CHANNELS } from '../src/shared/ipc-channel-list'
 
 /**
- * Vela Preload Script — 向渲染进程暴露受限的 IPC 能力
+ * 墨枢 Preload Script — 向渲染进程暴露受限的 IPC 能力
  *
  * 只放行白名单里的通道（见 src/shared/ipc-channel-list.ts）：渲染进程即使被注入脚本，
- * 也无法借 velaAPI 调用未登记的通道、监听任意事件，或向主进程单向发送消息。
+ * 也无法借 moshuAPI 调用未登记的通道、监听任意事件，或向主进程单向发送消息。
  * 真正的权限边界在主进程（发送方校验、路径约束等），这里是第一道闸。
  */
 
@@ -13,10 +13,10 @@ const allowedInvoke = new Set<string>(INVOKE_CHANNELS)
 const allowedEvents = new Set<string>(EVENT_CHANNELS)
 
 function rejectChannel(kind: string, channel: unknown): Error {
-  return new Error(`[Vela] 不允许的 IPC ${kind} 通道：${String(channel)}`)
+  return new Error(`[MoShu] 不允许的 IPC ${kind} 通道：${String(channel)}`)
 }
 
-contextBridge.exposeInMainWorld('velaAPI', {
+contextBridge.exposeInMainWorld('moshuAPI', {
   // ===== 双向请求/响应（invoke/handle） =====
   /** 调用主进程并等待结果 */
   invoke: (channel: string, ...args: unknown[]) => {

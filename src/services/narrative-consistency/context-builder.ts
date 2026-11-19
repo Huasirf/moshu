@@ -196,8 +196,9 @@ export async function buildCanonContext(params: BuildCanonContextParams): Promis
   // 并行读取所有 Canon Store 数据 + 角色卡（角色卡从参数传入，避免重复 IPC）。
   // 时间线与事实取全量：校验器需要完整历史（如"第 20 章已死的角色不得在
   // 第 150 章复活"）；prompt 膨胀在渲染侧用窗口控制，不在取数侧截断
-  const [timeline, summaries, plotLines, facts, canonCharStates, arcSummaries] = await Promise.all([
-    canonStore.getTimeline(Math.max(0, params.chapterNumber - 1)),
+  const currentChapter = params.chapterNumber
+  const [timeline, summariesRaw, plotLinesRaw, factsRaw, canonCharStates, arcSummaries] = await Promise.all([
+    canonStore.getTimeline(Math.max(0, currentChapter - 1)),
     canonStore.getRecentSummaries(recentSummaryCount),
     canonStore.getActivePlotLines(),
     canonStore.getFacts(),
@@ -206,8 +207,16 @@ export async function buildCanonContext(params: BuildCanonContextParams): Promis
     typeof canonStore.getArcSummaries === 'function' ? canonStore.getArcSummaries() : Promise.resolve([]),
   ])
 
-  // 角色当前状态：合并 canon 表与角色卡 currentState，canon 表优先
+  // 只注入“当前章之前”的史料。重写早期章节（如第 1 章）时，后续章节的摘要、
+  // 角色状态与事实都属于未来，不能当成前情，否则模型会顺着已写内容往下写。
+  const summaries = summariesRaw.filter(s => s.chapterNumber < currentChapter)
+  const plotLines = plotLinesRaw.filter(p => (p.startedAt || 0) < currentChapter)
+  const facts = factsRaw.filter(f => (f.introducedAt || 0) < currentChapter)
+
+  // 角色当前状态：合并 canon 表与角色卡 currentState，canon 表优先；
+  // 再按 updatedAtChapter 截断到当前章之前（0 表示未标注，保留）
   const mergedStates = mergeCharacterStates(canonCharStates, params.characters)
+    .filter(s => !s.updatedAtChapter || s.updatedAtChapter < currentChapter)
 
   // 拼装 world rules = premise + worldbuilding + charactersArch + synopsis
   const worldRules = [
@@ -329,4 +338,94 @@ export function renderCanonContext(ctx: CanonContext): string {
     .filter(b => b.content && b.content.trim().length > 0 && !/^（无/.test(b.content.trim()))
     .map(b => `${b.title}\n${b.content}`)
     .join('\n\n---\n\n')
+}
+
+/** 按段落边界裁剪，避免切在句子中间 */
+function clipText(text: string, max: number): string {
+  const src = (text || '').trim()
+  if (!src || src.length <= max) return src
+  const cut = src.slice(0, max)
+  const lastBreak = Math.max(cut.lastIndexOf('\n\n'), cut.lastIndexOf('\n'))
+  const head = lastBreak > max * 0.55 ? cut.slice(0, lastBreak) : cut
+  return `${head.trimEnd()}\n（本节已截断）`
+}
+
+export interface CompactCanonOptions {
+  /** 只保留这些角色的动态状态；空数组表示全部 */
+  focusCharacters?: string[]
+  /** 时间线只取最近 N 条，默认 8 */
+  timelineLimit?: number
+  /** 最近章节摘要只取最近 N 章，默认 2 */
+  summaryLimit?: number
+  /** 关键事实只取最近 N 条，默认 10 */
+  factLimit?: number
+  /** 总字数上限，默认 7000 */
+  maxChars?: number
+}
+
+/**
+ * 紧凑版 Canon 渲染 — 写稿/审稿预算紧张时使用。
+ *
+ * 与 renderCanonContext 的区别：
+ * - 正史设定、人物群像只保留前 1.4k/1.4k 字，避免和 worldSetting/architecture 重复；
+ * - 人物状态只保留本章出场角色 + 主角；
+ * - 时间线/摘要/事实/剧情线全部取最近 N 条；
+ * - 输出总字数硬上限 7000，防止单块膨胀。
+ */
+export function renderCompactCanonContext(ctx: CanonContext, options: CompactCanonOptions = {}): string {
+  const focus = new Set((options.focusCharacters || []).filter(Boolean))
+  const timelineLimit = Math.max(0, options.timelineLimit ?? 8)
+  const summaryLimit = Math.max(0, options.summaryLimit ?? 2)
+  const factLimit = Math.max(0, options.factLimit ?? 10)
+  const maxChars = Math.max(2000, options.maxChars ?? 7000)
+
+  const states = (ctx.characterStates || []).filter((s) => focus.size === 0 || focus.has(s.character))
+  const stateText = states
+    .slice(0, 6)
+    .map((s) => `- ${s.character} | 地点：${s.location || '未知'} | 境界：${s.powerLevel || '未知'} | ` +
+      `身体：${s.physicalState || '正常'} | 心理：${s.mentalState || '正常'} | ` +
+      `道具：${s.keyItems || '无'} | 最近：第${s.updatedAtChapter}章 ${s.recentEvents || ''}`)
+    .join('\n')
+
+  const timelineText = (ctx.timeline || [])
+    .slice(-timelineLimit)
+    .map((e) => `- 第${e.chapterNumber}章：${e.summary}${e.location ? `（${e.location}）` : ''}` +
+      `${e.characters?.length ? `｜${e.characters.join('、')}` : ''}`)
+    .join('\n')
+
+  const summaries = (ctx.recentChapterSummaries || '')
+    .split(/\n{2,}(?=【第)/)
+    .filter(Boolean)
+    .slice(-summaryLimit)
+    .join('\n\n')
+
+  const plotText = (ctx.openPlotLines || [])
+    .filter((l) => l.status === 'active')
+    .slice(0, 3)
+    .map((l) => `- ${l.name}：${l.currentState || '推进中'}（最近第${l.lastAdvancedAt}章）`)
+    .join('\n')
+
+  const factText = (ctx.knownFacts || [])
+    .slice(-factLimit)
+    .map((f) => `- [${f.category}] ${f.statement}（第${f.introducedAt}章）`)
+    .join('\n')
+
+  const blocks: Array<{ title: string; content: string }> = [
+    { title: '【正史设定摘要（不可违背）】', content: clipText(ctx.worldRules, 1400) },
+    { title: '【人物群像摘要（静态设定）】', content: clipText(ctx.characterArch, 1400) },
+    { title: '【当前人物状态（最高优先级 · 生成时不得推翻）】', content: stateText },
+    { title: '【最近事件时间线（严格单向）】', content: timelineText },
+    { title: '【前情提要（远期记忆）】', content: clipText(ctx.longTermSummary || '', 600) },
+    { title: '【最近章节摘要】', content: summaries },
+    { title: '【未结剧情线】', content: plotText },
+    { title: '【关键事实条目（不可推翻）】', content: factText },
+    { title: '【硬性约束（必须严格遵守）】', content: ctx.hardConstraints },
+  ]
+
+  const out = blocks
+    .filter((b) => b.content && b.content.trim().length > 0 && !/^（无/.test(b.content.trim()))
+    .map((b) => `${b.title}\n${b.content}`)
+    .join('\n\n---\n\n')
+  if (out.length <= maxChars) return out
+  return `${out.slice(0, maxChars).trimEnd()}\n\n（Canon 紧凑上下文已按预算截断；完整事实仍以校验器为准）`
 }

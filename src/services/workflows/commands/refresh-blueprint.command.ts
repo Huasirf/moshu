@@ -136,6 +136,7 @@ export class RefreshBlueprintCommand extends BaseWorkflowCommand<RefreshBlueprin
       .withAntiRepetition(antiRepetition)
       .withFutureBlueprints(futureBlueprints)
       .withGlobalGuidance(project.novelConfig.globalGuidance || '（无特殊要求）')
+      .withRulebook(project.novelConfig.rulebook || '')
       // 节奏指导来自工作流参数（与目录生成一致），非 novelConfig 字段
       .withPacingGuidance((context.data.pacingGuidance as string) || '')
 

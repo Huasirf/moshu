@@ -30,6 +30,8 @@ export interface KBStatsData {
   documentCount: number
   totalChunks: number
   vectorDimension: number
+  /** 最近一次入库时间（ISO）；空库为 null */
+  lastUpdatedAt?: string | null
 }
 
 /** 加载文档列表 */

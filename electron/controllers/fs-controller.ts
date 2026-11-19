@@ -1,4 +1,4 @@
-import { ipcMain } from 'electron'
+﻿import { ipcMain } from 'electron'
 import fs from 'node:fs'
 import fsPromises from 'node:fs/promises'
 import path from 'node:path'
@@ -112,7 +112,7 @@ export function registerFSController() {
       const budget = { remaining: LIST_DIR_MAX_ENTRIES, truncated: false }
       const tree = readDirRecursive(check.path, 0, budget)
       if (budget.truncated) {
-        console.warn(`[Vela FS] 目录条目过多，只返回前 ${LIST_DIR_MAX_ENTRIES} 项 / ${LIST_DIR_MAX_DEPTH} 层：${check.path}`)
+        console.warn(`[MoShu FS] 目录条目过多，只返回前 ${LIST_DIR_MAX_ENTRIES} 项 / ${LIST_DIR_MAX_DEPTH} 层：${check.path}`)
       }
       return tree
     } catch {

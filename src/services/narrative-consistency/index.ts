@@ -14,8 +14,10 @@ export { CanonStore, canonStore } from './canon-store'
 export {
   buildCanonContext,
   renderCanonContext,
+  renderCompactCanonContext,
   HARD_CONSTRAINTS,
   type BuildCanonContextParams,
+  type CompactCanonOptions,
 } from './context-builder'
 export {
   validateChapter,
@@ -38,6 +40,8 @@ export {
   type GateParams,
   type GateSeverity,
   type ClassifiedIssue,
+  checkCrossChapterRelations,
+  type CrossChapterRelationFact,
 } from './consistency-gate.service'
 
 

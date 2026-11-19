@@ -27,6 +27,7 @@ export interface ProjectCoreRow {
     core_outline: string
     world_setting: string
     protagonist_profile: string
+    rulebook: string
     premise: string
     worldbuilding: string
     characters_arch: string
@@ -56,6 +57,7 @@ export interface ProjectCoreData {
     coreOutline: string
     worldSetting: string
     protagonistProfile: string
+    rulebook: string
     premise: string
     worldbuilding: string
     charactersArch: string
@@ -84,6 +86,7 @@ function rowToData(row: ProjectCoreRow): ProjectCoreData {
         coreOutline: row.core_outline ?? '',
         worldSetting: row.world_setting ?? '',
         protagonistProfile: row.protagonist_profile ?? '',
+        rulebook: row.rulebook ?? '',
         premise: row.premise,
         worldbuilding: row.worldbuilding,
         charactersArch: row.characters_arch,
@@ -141,6 +144,7 @@ export class ProjectCoreRepository {
             coreOutline: 'core_outline',
             worldSetting: 'world_setting',
             protagonistProfile: 'protagonist_profile',
+            rulebook: 'rulebook',
             premise: 'premise',
             worldbuilding: 'worldbuilding',
             charactersArch: 'characters_arch',

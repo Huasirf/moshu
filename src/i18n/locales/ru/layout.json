@@ -15,8 +15,6 @@
     "themeLabel": "Тема: {{theme}}"
   },
   "statusBar": {
-    "supportAuthor": "❤️ Поддержать автора",
-    "sponsorTooltip": "Бизнес и спонсорство",
     "currentModel": "Текущая модель: {{name}}",
     "clickToConfigModel": "Нажмите для настройки модели",
     "noModel": "Модель не настроена",
@@ -30,10 +28,13 @@
     "foreshadowing": "Реестр предзнаменований",
     "timeline": "Хронология сюжета",
     "search": "Поиск (Ctrl+Shift+F)",
+    "outline": "Дерево плана",
     "home": "Главная",
     "project": "Проект",
     "knowledge": "База знаний",
     "characters": "Персонажи",
+    "assets": "Библиотека активов",
+    "status": "Текущее состояние",
     "settings": "Настройки",
     "agent": "ИИ-ассистент",
     "projectManagement": "Управление проектами",

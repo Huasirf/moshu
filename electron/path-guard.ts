@@ -1,22 +1,23 @@
-/**
+﻿/**
  * 主进程文件访问约束：渲染进程经 IPC 传来的路径一律在这里校验后才落到磁盘操作。
  *
  * 放行范围：
  * - 当前打开的项目目录：读写
- * - ~/.vela/prompts：读写；~/.vela/skills：只读
+ * - ~/.moshu/prompts：读写；~/.moshu/skills：只读
  * - 本次运行中用户经系统对话框选中的位置：选文件夹 → 读写；选文件 → 只读
  *
  * 无论是否落在上述范围内，一律拒绝：
- * - ~/.vela 根目录本身、根目录下的文件（config.json、models.json、recent-projects.json、mcp_config.json
- *   以及它们的 .bak / .corrupt 副本等）、~/.vela/logs
- * - 任意位置的 .vela/vela.db*、.vela/lancedb、.vela/backups（项目数据只能经由主进程的库接口读写）
+ * - ~/.moshu 根目录本身、根目录下的文件（config.json、models.json、recent-projects.json、mcp_config.json
+ *   以及它们的 .bak / .corrupt 副本等）、~/.moshu/logs
+ * - 任意位置的 .moshu/moshu.db*、.moshu/lancedb、.moshu/backups（项目数据只能经由主进程的库接口读写）
  *
  * 判定方式：要求绝对路径 → path.resolve 规整 → 对最近的已存在祖先做 realpath
  * （符号链接、目录联接、Windows 短文件名都不能把访问带出范围）→ 用 path.relative 判断包含关系（Windows 下不区分大小写）。
  */
 import fs from 'node:fs'
 import path from 'node:path'
-import { VELA_HOME, RECENT_PROJECTS_PATH, readJsonFile } from './utils/config-utils'
+import { MOSHU_HOME, RECENT_PROJECTS_PATH, readJsonFile } from './utils/config-utils'
+import { PROJECT_REGISTRY_PATH } from './utils/project-registry'
 import { getCurrentProjectPath } from './database'
 
 export type PathAccess = 'read' | 'write'
@@ -44,7 +45,7 @@ export interface PathGrant {
 }
 
 export interface PathPolicyContext {
-  velaHome: string
+  moshuHome: string
   projectPath: string | null
   grants: readonly PathGrant[]
 }
@@ -92,19 +93,19 @@ function deny(kind: 'forbidden' | 'outside' | 'invalid', error: string): PathChe
 }
 
 /**
- * ~/.vela 内的判定：prompts 读写、skills 只读；根目录本身、根目录下的文件与 logs 一律拒绝。
- * 返回 null 表示不在 ~/.vela 内，或是 ~/.vela 下的其他子目录（例如用户把项目放在这里），交给后续规则。
+ * ~/.moshu 内的判定：prompts 读写、skills 只读；根目录本身、根目录下的文件与 logs 一律拒绝。
+ * 返回 null 表示不在 ~/.moshu 内，或是 ~/.moshu 下的其他子目录（例如用户把项目放在这里），交给后续规则。
  */
-function velaHomeVerdict(canonical: string, access: PathAccess, velaHome: string): 'allow' | PathCheckResult | null {
-  if (!isPathInside(canonical, velaHome)) return null
-  if (isPathInside(canonical, path.join(velaHome, 'prompts'))) return 'allow'
-  if (isPathInside(canonical, path.join(velaHome, 'skills'))) {
-    return access === 'read' ? 'allow' : deny('forbidden', '~/.vela/skills 为只读目录')
+function moshuHomeVerdict(canonical: string, access: PathAccess, moshuHome: string): 'allow' | PathCheckResult | null {
+  if (!isPathInside(canonical, moshuHome)) return null
+  if (isPathInside(canonical, path.join(moshuHome, 'prompts'))) return 'allow'
+  if (isPathInside(canonical, path.join(moshuHome, 'skills'))) {
+    return access === 'read' ? 'allow' : deny('forbidden', '~/.moshu/skills 为只读目录')
   }
 
-  const rel = path.relative(foldCase(velaHome), foldCase(canonical))
+  const rel = path.relative(foldCase(moshuHome), foldCase(canonical))
   const segments = rel === '' ? [] : rel.split(path.sep)
-  const protectedMessage = '~/.vela 下的配置文件（模型与 API Key、全局配置、最近项目等）只能由应用自身读写'
+  const protectedMessage = '~/.moshu 下的配置文件（模型与 API Key、全局配置、最近项目等）只能由应用自身读写'
   if (segments.length === 0 || segments[0] === 'logs') return deny('forbidden', protectedMessage)
   if (segments.length === 1) {
     // 根目录下的条目：只有已存在的子目录按普通规则判断，其余（配置文件及其副本、将来新增的文件）一律拒绝
@@ -123,13 +124,13 @@ function normalizeSegment(segment: string): string {
   return isWindows ? segment.replace(/:.*$/, '').replace(/[. ]+$/, '') : segment
 }
 
-/** 是否为项目内部数据：.vela/vela.db*、.vela/lancedb/**、.vela/backups/** */
+/** 是否为项目内部数据：.moshu/moshu.db*、.moshu/lancedb/**、.moshu/backups/** */
 function isProjectInternalData(canonical: string): boolean {
   const segments = foldCase(canonical).split(path.sep).map(normalizeSegment)
   for (let i = 0; i < segments.length - 1; i++) {
-    if (segments[i] !== '.vela') continue
+    if (segments[i] !== '.moshu') continue
     const next = segments[i + 1]
-    if (next === 'lancedb' || next === 'backups' || next.startsWith('vela.db')) return true
+    if (next === 'lancedb' || next === 'backups' || next.startsWith('moshu.db')) return true
   }
   return false
 }
@@ -147,9 +148,9 @@ function validateInput(target: unknown): PathCheckResult {
   return { ok: true, path: resolved }
 }
 
-/** 受保护位置判定：返回 'allow'（~/.vela 下的放行目录）/ 拒绝结果 / null（交给后续规则） */
-function protectedVerdict(canonical: string, access: PathAccess, velaHome: string, original: string): 'allow' | PathCheckResult | null {
-  const home = velaHomeVerdict(canonical, access, canonicalizePath(velaHome))
+/** 受保护位置判定：返回 'allow'（~/.moshu 下的放行目录）/ 拒绝结果 / null（交给后续规则） */
+function protectedVerdict(canonical: string, access: PathAccess, moshuHome: string, original: string): 'allow' | PathCheckResult | null {
+  const home = moshuHomeVerdict(canonical, access, canonicalizePath(moshuHome))
   if (home) return home
   if (isProjectInternalData(canonical)) {
     return deny('forbidden', `项目数据库、向量库与备份只能由应用自身读写：${original}`)
@@ -169,7 +170,7 @@ export function evaluatePathAccess(target: unknown, access: PathAccess, ctx: Pat
   const original = target as string
   const canonical = canonicalizePath(input.path)
 
-  const verdict = protectedVerdict(canonical, access, ctx.velaHome, original)
+  const verdict = protectedVerdict(canonical, access, ctx.moshuHome, original)
   if (verdict === 'allow') return input
   if (verdict) return verdict
 
@@ -178,7 +179,7 @@ export function evaluatePathAccess(target: unknown, access: PathAccess, ctx: Pat
 
   return deny(
     'outside',
-    `无权${access === 'write' ? '写入' : '读取'}该路径：${original}（仅允许当前项目、~/.vela/prompts 以及通过对话框选择的位置）`,
+    `无权${access === 'write' ? '写入' : '读取'}该路径：${original}（仅允许当前项目、~/.moshu/prompts 以及通过对话框选择的位置）`,
   )
 }
 
@@ -201,11 +202,11 @@ export function resetPathGrantsForTest(): void {
 }
 
 function currentContext(): PathPolicyContext {
-  return { velaHome: VELA_HOME, projectPath: getCurrentProjectPath(), grants: [...grants.values()] }
+  return { moshuHome: MOSHU_HOME, projectPath: getCurrentProjectPath(), grants: [...grants.values()] }
 }
 
 function logDenied(result: PathCheckResult, access: PathAccess, target: unknown): void {
-  if (!result.ok) console.warn(`[Vela PathGuard] 拒绝${access === 'write' ? '写入' : '读取'}（${result.kind}）：${String(target)}`)
+  if (!result.ok) console.warn(`[MoShu PathGuard] 拒绝${access === 'write' ? '写入' : '读取'}（${result.kind}）：${String(target)}`)
 }
 
 export function checkPathAccess(target: unknown, access: PathAccess): PathCheckResult {
@@ -230,7 +231,12 @@ export function isKnownProjectPath(target: string): boolean {
   const current = getCurrentProjectPath()
   if (current && isSamePath(canonical, canonicalizePath(current))) return true
   const recent = readJsonFile<Array<{ path?: unknown }>>(RECENT_PROJECTS_PATH, [])
-  return Array.isArray(recent) && recent.some((p) =>
+  const inRecent = Array.isArray(recent) && recent.some((p) =>
+    typeof p?.path === 'string' && path.isAbsolute(p.path) && isSamePath(canonical, canonicalizePath(p.path)))
+  if (inRecent) return true
+  // 项目登记表（工作台里展示的托管项目）同样视为已知项目
+  const registry = readJsonFile<Array<{ path?: unknown }>>(PROJECT_REGISTRY_PATH, [])
+  return Array.isArray(registry) && registry.some((p) =>
     typeof p?.path === 'string' && path.isAbsolute(p.path) && isSamePath(canonical, canonicalizePath(p.path)))
 }
 
@@ -246,8 +252,8 @@ export function evaluateProjectOpenAccess(
   const input = validateInput(projectPath)
   if (!input.ok) return input
   const canonical = canonicalizePath(input.path)
-  const verdict = protectedVerdict(canonical, 'write', ctx.velaHome, projectPath as string)
-  if (verdict === 'allow') return deny('forbidden', '不能把 ~/.vela 下的应用目录作为项目打开')
+  const verdict = protectedVerdict(canonical, 'write', ctx.moshuHome, projectPath as string)
+  if (verdict === 'allow') return deny('forbidden', '不能把 ~/.moshu 下的应用目录作为项目打开')
   if (verdict) return verdict
   if (isKnownProject(input.path) || coveredByGrant(canonical, 'write', ctx.grants)) return input
   return deny('outside', '请通过「打开项目」对话框选择项目文件夹')
@@ -278,8 +284,8 @@ function isMissingOrEmptyDir(dir: string): boolean {
 export function evaluateProjectCreateAccess(projectDir: unknown, ctx: PathPolicyContext): PathCheckResult {
   const result = evaluatePathAccess(projectDir, 'write', ctx)
   if (result.ok) {
-    if (velaHomeVerdict(canonicalizePath(result.path), 'write', canonicalizePath(ctx.velaHome)) === 'allow') {
-      return deny('forbidden', '不能在 ~/.vela 下的应用目录里新建项目')
+    if (moshuHomeVerdict(canonicalizePath(result.path), 'write', canonicalizePath(ctx.moshuHome)) === 'allow') {
+      return deny('forbidden', '不能在 ~/.moshu 下的应用目录里新建项目')
     }
     return result
   }

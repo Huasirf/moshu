@@ -1,8 +1,8 @@
-/**
- * Vela 知识库管理 — 主进程使用
+﻿/**
+ * 墨枢 知识库管理 — 主进程使用
  *
  * 管理文档导入、向量化和检索
- * 底层存储已从 vectors.json 迁移至 LanceDB（{projectPath}/.vela/lancedb/）
+ * 底层存储已从 vectors.json 迁移至 LanceDB（{projectPath}/.moshu/lancedb/）
  *
  * 检索模式：
  * - 默认：BM25 全文检索（FTS），零配置即可用
@@ -32,13 +32,29 @@ async function ensureMigration(projectPath: string): Promise<void> {
   if (migratedProjects.has(projectPath)) return
   migratedProjects.add(projectPath)
 
-  const jsonPath = path.join(projectPath, '.vela', 'vectors.json')
+  const jsonPath = path.join(projectPath, '.moshu', 'vectors.json')
   if (fs.existsSync(jsonPath)) {
     await migrateFromJSON(projectPath)
   }
 }
 
 // ===== 导出函数（保持旧签名，IPC 层零改动） =====
+
+/**
+ * 本地 Embedding 服务（Ollama 等）不校验 API Key，只有远程服务才必须配 Key。
+ * 之前一律用 `model.apiKey` 判断，导致本地模型永远走 FTS-only：
+ * 导入不生成向量、检索也不生成查询向量。
+ */
+function canUseEmbedding(model: { baseUrl: string; apiKey: string }): boolean {
+  if (model.apiKey) return true
+  try {
+    const host = new URL(model.baseUrl).hostname
+    return host === 'localhost' || host === '127.0.0.1' || host === '[::1]' || host === '::1' || host === '0.0.0.0'
+  } catch {
+    return false
+  }
+}
+
 
 /**
  * 导入文档到知识库（单文件，从磁盘读取）
@@ -72,14 +88,14 @@ export async function importDocument(
     const chunks = chunkText(content, 500, 50)
     const docId = randomUUID()
 
-    // 3. 可选：生成向量（如果有 Embedding 配置）
+    // 3. 可选：生成向量（本地或已配置 Key 的 Embedding 模型）
     let vectors: number[][] | undefined
-    if (model.apiKey) {
+    if (canUseEmbedding(model)) {
       try {
         onProgress?.(20, `正在向量化 ${chunks.length} 个块...`)
         vectors = await generateEmbeddings(chunks, protocol, model)
       } catch (e) {
-        console.warn('[Vela KB] Embedding 调用失败，降级为 FTS-only:', e)
+        console.warn('[MoShu KB] Embedding 调用失败，降级为 FTS-only:', e)
         // 不影响导入，仅 FTS
       }
     }
@@ -116,7 +132,7 @@ export async function searchKnowledge(
 
   // 可选：生成查询向量
   let queryVector: number[] | undefined
-  if (model.apiKey && query.trim()) {
+  if (canUseEmbedding(model) && query.trim()) {
     try {
       const [vec] = await generateEmbeddings([query], protocol, model)
       if (vec && vec.length > 0) {
@@ -151,12 +167,14 @@ export async function getKnowledgeStats(projectPath: string): Promise<{
   documentCount: number
   totalChunks: number
   vectorDimension: number
+  lastUpdatedAt: string | null
 }> {
   const stats = await storeGetStats(projectPath)
   return {
     documentCount: stats.documentCount,
     totalChunks: stats.totalChunks,
     vectorDimension: stats.vectorDimension,
+    lastUpdatedAt: stats.lastUpdatedAt,
   }
 }
 
@@ -221,10 +239,15 @@ export async function importFolder(
  */
 /**
  * 从文件名解析章节元数据
- * 支持格式：第{N}章 {title} xxx.md
+ * 支持格式：
+ * - 「第{N}章 {title}.txt」（定稿自动导入的正文）
+ * - 「第{N}章.txt」（无标题章节，P2-5 统一命名）
+ * - 「第{N}章 {title} {正文|要点|蓝图|剧情摘要}.md/.txt」
+ *
+ * 章节号是 searchWithScope 做「只检索本章之前」过滤的依据，缺了就会把该文档排除在范围检索之外。
  */
 function parseChapterMetaFromFileName(fileName: string): { chapterNumber?: number; chapterTitle?: string } | undefined {
-  const match = fileName.match(/^第(\d+)章\s+(.+?)\s+(正文|要点|蓝图)\.md$/)
+  const match = fileName.match(/^第(\d+)章(?:\s+(.+?))?(?:\s+(?:正文|要点|蓝图|剧情摘要))?\.(?:md|txt)$/i)
   if (match) {
     return {
       chapterNumber: parseInt(match[1]),
@@ -255,11 +278,11 @@ export async function importText(
 
     // 可选：生成向量
     let vectors: number[][] | undefined
-    if (model.apiKey) {
+    if (canUseEmbedding(model)) {
       try {
         vectors = await generateEmbeddings(chunks, protocol, model)
       } catch (e) {
-        console.warn('[Vela KB] importText Embedding 失败，降级 FTS-only:', e)
+        console.warn('[MoShu KB] importText Embedding 失败，降级 FTS-only:', e)
       }
     }
 
@@ -292,6 +315,23 @@ export async function getVectorlessCount(projectPath: string): Promise<{ count: 
 }
 
 /**
+ * 取向量实际长度。
+ *
+ * LanceDB 查询拿到的是 Arrow FixedSizeList 向量对象，不是普通 number[]，
+ * 用 Array.isArray 判断会把它一律当成「缺向量」：回填时会把已向量化的块再算一遍
+ * （processed 变成全库行数、failed 变成负数），白跑一轮 embedding。
+ */
+function vectorLength(v: unknown): number {
+  if (!v) return 0
+  const vec = v as { toArray?: () => unknown[]; length?: unknown }
+  if (typeof vec.toArray === 'function') {
+    try { return vec.toArray().length } catch { return 0 }
+  }
+  if (Array.isArray(v)) return v.length
+  return typeof vec.length === 'number' ? vec.length : 0
+}
+
+/**
  * 批量回填向量（为无向量的块生成 Embedding 并写回）
  *
  * 写回委托给 vector-store 的 updateChunkVectors：向量列维度按本批实际输出确定。
@@ -319,11 +359,11 @@ export async function backfillVectors(
     const schema = await table.schema()
     const hasVectorCol = schema.fields.some(f => f.name === 'vector')
 
-    let allRecords: Array<{ id: string; text: string; vector?: number[] }> = []
+    let allRecords: Array<{ id: string; text: string; vector?: unknown }> = []
     if (hasVectorCol) {
       const rows = await table.query().select(['id', 'text', 'vector']).toArray()
-      allRecords = rows.filter((r: { id: string; text: string; vector?: number[] }) =>
-        !r.vector || !Array.isArray(r.vector) || r.vector.length === 0
+      allRecords = rows.filter((r: { id: string; text: string; vector?: unknown }) =>
+        vectorLength(r.vector) === 0
       )
     } else {
       const rows = await table.query().select(['id', 'text']).toArray()
@@ -355,7 +395,7 @@ export async function backfillVectors(
 
     return { success: true, processed: updates.length, failed: total - updates.length }
   } catch (error) {
-    console.error('[Vela KB] 向量回填异常:', error)
+    console.error('[MoShu KB] 向量回填异常:', error)
     return { success: false, processed: 0, failed: 0, error: String(error) }
   }
 }

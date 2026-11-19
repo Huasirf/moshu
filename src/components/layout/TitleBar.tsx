@@ -105,8 +105,8 @@ export default function TitleBar() {
     >
       {/* 左侧：macOS 留出交通灯位置 + 应用名 */}
       <div className="flex items-center flex-shrink-0" style={{ paddingLeft: isMac ? 78 : 12 }}>
-        <span className="text-xs font-semibold tracking-wider brand-gradient">
-          Vela
+        <span className="text-xs font-semibold tracking-wider" style={{ color: 'var(--color-titlebar-text)' }}>
+          墨枢
         </span>
         {projectName && (
           <span className="text-xs ml-2 opacity-50" style={{ color: 'var(--color-titlebar-text)' }}>

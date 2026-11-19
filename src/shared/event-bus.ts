@@ -22,6 +22,8 @@ export type GlobalEventType =
   | 'ARCH_FILE_UPDATED'
   // --- 定稿完成（替代原 vela:finalize-complete） ---
   | 'FINALIZE_COMPLETE'
+  /** 审稿台账更新（规则审稿 / LLM 审稿落库后） */
+  | 'REVIEW_FINDINGS_UPDATED'
   // --- 项目级事件 ---
   | 'PROJECT_CHANGED'
   // --- 系统通知 ---
@@ -49,6 +51,9 @@ export interface EventPayloadMap {
     fileName: string
   }
   'FINALIZE_COMPLETE': {
+    chapterNumber: number
+  }
+  'REVIEW_FINDINGS_UPDATED': {
     chapterNumber: number
   }
   'PROJECT_CHANGED': {

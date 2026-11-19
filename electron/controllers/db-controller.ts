@@ -1,4 +1,4 @@
-import { ipcMain, shell } from 'electron'
+﻿import { ipcMain, shell } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
 import { closeProjectDatabase, getProjectDb, getCurrentProjectPath } from '../database'
@@ -7,10 +7,18 @@ import { getBackupDir } from '../db-backup'
 import { readRehearsalContext, requireProjectDatabase } from '../repositories/rehearsal-repository'
 import { indexStory, readStoryDocument, applyStoryRevision, listStoryRevisions, undoStoryRevision } from '../repositories/story-revision-repository'
 import type { StoryReadRequest, StoryRevisionRequest } from '../../src/shared/story-revision'
-import { VELA_HOME } from '../utils/config-utils'
+import { MOSHU_HOME } from '../utils/config-utils'
 
 // 导入所有 Repository
 import { ProjectCoreRepository, ProjectCoreData } from '../repositories/project-core-repository'
+import {
+  listRuleItems, replaceRuleItems, listRuleSnapshots, getRuleSnapshot, restoreRuleSnapshot,
+  compileRulebook,
+} from '../repositories/rule-repository'
+import {
+  listChapterEvents, listAllEvents, replaceChapterEvents,
+  getTimelineConfig, saveTimelineConfig, validateTimeline,
+} from '../repositories/timeline-repository'
 import { BlueprintRepository, BlueprintData } from '../repositories/blueprint-repository'
 import { CharacterRepository, CharacterData, CharacterStateData } from '../repositories/character-repository'
 import { DraftRepository } from '../repositories/draft-repository'
@@ -26,6 +34,17 @@ import { ChapterImageRepository } from '../repositories/chapter-image-repository
 import { LLMHistoryRepository } from '../repositories/llm-repository'
 import { SummaryRepository } from '../repositories/summary-repository'
 import { CanonRepository } from '../repositories/canon-repository'
+import { AssetRepository } from '../repositories/asset-repository'
+import { AttributeRepository } from '../repositories/attribute-repository'
+import { RelationRepository } from '../repositories/relation-repository'
+import { PipelineRepository } from '../repositories/pipeline-repository'
+import { StyleRepository } from '../repositories/style-repository'
+import { ReviewFindingRepository } from '../repositories/review-finding-repository'
+import { executeMutationPlan, previewMutationPlan } from '../services/mutation-plan-executor'
+import { executeFinalizeWriteback, type FinalizeWritebackInput } from '../services/finalize-writeback'
+import { executeChapterUnfinalize } from '../services/chapter-unfinalize'
+import { CharacterHistoryRepository } from '../repositories/character-history-repository'
+import type { MutationPlanExecutionOptions } from '../../src/shared/mutation-plan'
 import {
   safeValidate,
   validateCanonTimelineEventInput,
@@ -36,6 +55,14 @@ import {
   validateCanonArcSummary,
   validateCanonWritebackPayload,
   validateChapterSearchArgs,
+  validateAssetInput,
+  validateAttributeDefInput,
+  validateAttributeValueInput,
+  validateEntityRelationInput,
+  validateStyleProfileInput,
+  validateReviewFindingInput,
+  VALID_ASSET_TYPES,
+  VALID_FINDING_STATUSES,
 } from '../ipc-validation'
 import type {
   TimelineEvent,
@@ -44,19 +71,23 @@ import type {
   Fact,
   ChapterSummary,
 } from '../../src/services/narrative-consistency/types'
+import type { AssetEntityType } from '../repositories/asset-repository'
+import type { AttributePhase } from '../repositories/attribute-repository'
+import type { ChapterStage } from '../../src/shared/chapter-stage'
+import type { ReviewFindingStatus } from '../repositories/review-finding-repository'
 
 /** 手动备份保留份数（与自动备份分开计数） */
 const MANUAL_BACKUP_KEEP = 20
 
 export function registerDatabaseController() {
-  const agentStatePath = path.join(VELA_HOME, 'author-agent-state.json')
+  const agentStatePath = path.join(MOSHU_HOME, 'author-agent-state.json')
   ipcMain.handle('agent:state-read', () => {
     if (!fs.existsSync(agentStatePath)) return null
     return fs.readFileSync(agentStatePath, 'utf8')
   })
   ipcMain.handle('agent:state-write', (_event, serialized: string) => {
     if (typeof serialized !== 'string' || serialized.length > 50_000_000 || !Array.isArray(JSON.parse(serialized)?.state?.conversations)) throw new Error('对话记录格式错误或过大。')
-    fs.mkdirSync(VELA_HOME, { recursive: true })
+    fs.mkdirSync(MOSHU_HOME, { recursive: true })
     const temporary = `${agentStatePath}.tmp`
     fs.writeFileSync(temporary, serialized, 'utf8')
     fs.renameSync(temporary, agentStatePath)
@@ -116,6 +147,73 @@ export function registerDatabaseController() {
   })
 
   // ============================================================
+  // 1.1 rule_items — 结构化规则库
+  // ============================================================
+  ipcMain.handle('db:rule-items-list', async () => listRuleItems())
+
+  ipcMain.handle('db:rule-items-save', async (_event, items: Parameters<typeof replaceRuleItems>[0]) => {
+    try {
+      const result = replaceRuleItems(items)
+      return { success: true, items: result.items, compiled: result.compiled }
+    } catch (err) {
+      console.error('[db:rule-items-save] 失败:', err)
+      return { success: false, error: String(err) }
+    }
+  })
+
+  ipcMain.handle('db:rule-items-seed', async (_event, rulebook?: string) => {
+    try {
+      const { seedRuleItemsFromRulebook } = await import('../repositories/rule-repository')
+      const text = rulebook ?? ''
+      const count = seedRuleItemsFromRulebook(text)
+      const items = listRuleItems()
+      return { success: true, items, compiled: compileRulebook(items), count }
+    } catch (err) {
+      console.error('[db:rule-items-seed] 失败:', err)
+      return { success: false, error: String(err) }
+    }
+  })
+
+  ipcMain.handle('db:rule-snapshot-list', async (_event, limit?: number) => listRuleSnapshots(limit))
+
+  ipcMain.handle('db:rule-snapshot-get', async (_event, id: number) => getRuleSnapshot(id))
+
+  ipcMain.handle('db:rule-snapshot-restore', async (_event, id: number) => {
+    try {
+      restoreRuleSnapshot(id)
+      const restored = listRuleItems()
+      return { success: true, items: restored, compiled: compileRulebook(restored) }
+    } catch (err) {
+      return { success: false, error: String(err) }
+    }
+  })
+
+  // ============================================================
+  // 1.2 章纲时间线
+  // ============================================================
+  ipcMain.handle('db:timeline-events-get', async (_event, chapterNumber: number) => listChapterEvents(chapterNumber))
+  ipcMain.handle('db:timeline-events-all', async (_event, limit?: number) => listAllEvents(limit))
+  ipcMain.handle('db:timeline-events-save', async (
+    _event, chapterNumber: number, events: Parameters<typeof replaceChapterEvents>[1],
+  ) => {
+    try {
+      const saved = replaceChapterEvents(chapterNumber, events)
+      return { success: true, events: saved }
+    } catch (err) {
+      return { success: false, error: String(err) }
+    }
+  })
+  ipcMain.handle('db:timeline-config-get', async () => getTimelineConfig())
+  ipcMain.handle('db:timeline-config-save', async (_event, config: Partial<Parameters<typeof saveTimelineConfig>[0]>) => {
+    return saveTimelineConfig(config)
+  })
+  ipcMain.handle('db:timeline-validate', async () => validateTimeline())
+  ipcMain.handle('db:timeline-context', async (_event, chapterNumber: number) => {
+    const { buildTimelineContext } = await import('../repositories/timeline-repository')
+    return buildTimelineContext(chapterNumber)
+  })
+
+  // ============================================================
   // 2. blueprints — 章节蓝图
   // ============================================================
   ipcMain.handle('db:blueprint-get-all', async (_event, projectPath?: string) => {
@@ -163,6 +261,16 @@ export function registerDatabaseController() {
     try {
       BlueprintRepository.updateNotes(chapterNumber, notes)
       return { success: true }
+    } catch (err) {
+      return { success: false, error: String(err) }
+    }
+  })
+
+  ipcMain.handle('db:blueprint-mark-stale', async (_event, chapterNumbers: unknown) => {
+    if (!Array.isArray(chapterNumbers)) return { success: false, error: 'EXPECTED_ARRAY' }
+    try {
+      const updated = BlueprintRepository.markStale(chapterNumbers as number[])
+      return { success: true, updated }
     } catch (err) {
       return { success: false, error: String(err) }
     }
@@ -217,6 +325,23 @@ export function registerDatabaseController() {
       return { success: true }
     } catch (err) {
       return { success: false, error: String(err) }
+    }
+  })
+
+  ipcMain.handle('db:character-history-list', async (_event, name: string, limit?: number) => {
+    try {
+      return CharacterHistoryRepository.getHistory(name, limit ?? 100)
+    } catch (err) {
+      return { success: false, error: String(err) }
+    }
+  })
+
+  ipcMain.handle('db:character-snapshot-map', async (_event, chapterNumber: number) => {
+    try {
+      if (!Number.isSafeInteger(chapterNumber) || chapterNumber < 0) return {}
+      return CharacterHistoryRepository.getSnapshotMap(chapterNumber)
+    } catch {
+      return {}
     }
   })
 
@@ -316,6 +441,27 @@ export function registerDatabaseController() {
     try {
       DraftRepository.updateStatus(id, status, wordCount)
       return { success: true }
+    } catch (err) {
+      return { success: false, error: String(err) }
+    }
+  })
+
+  ipcMain.handle('db:draft-finalize', async (_event, chapterNumber: number, id: number, wordCount: number) => {
+    try {
+      DraftRepository.finalizeExclusive(chapterNumber, id, wordCount)
+      return { success: true }
+    } catch (err) {
+      return { success: false, error: String(err) }
+    }
+  })
+
+  // 取消定稿：只允许当前最新定稿章，先备份再单事务回滚
+  ipcMain.handle('db:chapter-unfinalize', async (_event, chapterNumber: number) => {
+    if (!Number.isSafeInteger(chapterNumber) || chapterNumber < 1) {
+      return { success: false, error: 'INVALID_CHAPTER_NUMBER' }
+    }
+    try {
+      return { success: true, result: await executeChapterUnfinalize(chapterNumber) }
     } catch (err) {
       return { success: false, error: String(err) }
     }
@@ -582,6 +728,17 @@ ipcMain.handle('db:revision-create', async (_event, params: {
     CanonRepository.clearChapterTimeline(chapterNumber)
     return { success: true }
   })
+  ipcMain.handle('db:canon-timeline-clear-extracted', async (_event, chapterNumber: number) => {
+    CanonRepository.clearChapterExtractedTimeline(chapterNumber)
+    return { success: true }
+  })
+  ipcMain.handle('db:canon-timeline-set-status', async (_event, id: number, status: 'confirmed' | 'pending' | 'rejected') => {
+    if (!['confirmed', 'pending', 'rejected'].includes(status)) return { success: false }
+    return { success: CanonRepository.setTimelineEventStatus(id, status) }
+  })
+  ipcMain.handle('db:canon-timeline-pending', async () => {
+    return CanonRepository.getPendingTimelineEvents()
+  })
 
   // 角色状态
   ipcMain.handle('db:canon-character-state-get-all', async () => {
@@ -701,5 +858,281 @@ ipcMain.handle('db:revision-create', async (_event, params: {
       console.error('[db:canon-writeback-atomic] failed:', err)
       return { success: false, error: String(err) }
     }
+  })
+
+  // ===== P1 数据层：资产库 =====
+  ipcMain.handle('db:asset-list', async (_event, entityType?: AssetEntityType) => {
+    if (entityType && !(VALID_ASSET_TYPES as readonly string[]).includes(entityType)) return []
+    return AssetRepository.getAll(entityType)
+  })
+  ipcMain.handle('db:asset-get', async (_event, id: number) => {
+    if (!Number.isSafeInteger(id) || id < 1) return null
+    return AssetRepository.getById(id)
+  })
+  ipcMain.handle('db:asset-upsert', async (_event, raw: unknown) => {
+    const v = safeValidate(validateAssetInput, raw)
+    if (!v.ok) return { success: false, error: v.error }
+    try {
+      return { success: true, id: AssetRepository.upsert(v.data) }
+    } catch (err) {
+      return { success: false, error: String(err) }
+    }
+  })
+  ipcMain.handle('db:asset-delete', async (_event, id: number) => {
+    if (!Number.isSafeInteger(id) || id < 1) return { success: false, error: 'INVALID_ID' }
+    try {
+      AssetRepository.delete(id)
+      return { success: true }
+    } catch (err) {
+      return { success: false, error: String(err) }
+    }
+  })
+
+  // ===== P1 数据层：属性系统 =====
+  ipcMain.handle('db:attribute-def-list', async (_event, entityType?: string) => {
+    if (entityType !== undefined && (typeof entityType !== 'string' || entityType.length > 100)) return []
+    return AttributeRepository.listDefs(entityType)
+  })
+  ipcMain.handle('db:attribute-def-upsert', async (_event, raw: unknown) => {
+    const v = safeValidate(validateAttributeDefInput, raw)
+    if (!v.ok) return { success: false, error: v.error }
+    try {
+      AttributeRepository.upsertDef(v.data)
+      return { success: true }
+    } catch (err) {
+      return { success: false, error: String(err) }
+    }
+  })
+  ipcMain.handle('db:attribute-def-delete', async (_event, key: string) => {
+    if (typeof key !== 'string' || !key.trim()) return { success: false, error: 'INVALID_KEY' }
+    try {
+      AttributeRepository.deleteDef(key)
+      return { success: true }
+    } catch (err) {
+      return { success: false, error: String(err) }
+    }
+  })
+  ipcMain.handle('db:attribute-value-get', async (
+    _event,
+    entityId: string,
+    attrKey: string,
+    chapterNumber: number,
+    phase: AttributePhase = 'after',
+  ) => {
+    if (typeof entityId !== 'string' || !entityId.trim()) return null
+    if (typeof attrKey !== 'string' || !attrKey.trim()) return null
+    if (!Number.isSafeInteger(chapterNumber) || chapterNumber < 1) return null
+    return AttributeRepository.getValueAt(entityId, attrKey, chapterNumber, phase)
+  })
+  ipcMain.handle('db:attribute-value-list', async (_event, entityId: string, attrKey?: string) => {
+    if (typeof entityId !== 'string' || !entityId.trim()) return []
+    if (attrKey !== undefined && typeof attrKey !== 'string') return []
+    return AttributeRepository.listValues(entityId, attrKey)
+  })
+  ipcMain.handle('db:attribute-value-set', async (_event, raw: unknown) => {
+    const v = safeValidate(validateAttributeValueInput, raw)
+    if (!v.ok) return { success: false, error: v.error }
+    try {
+      return { success: true, value: AttributeRepository.setValue(v.data) }
+    } catch (err) {
+      return { success: false, error: String(err) }
+    }
+  })
+  ipcMain.handle('db:attribute-panel-state', async (
+    _event,
+    entityId: string,
+    chapterNumber: number,
+    phase: AttributePhase = 'after',
+    entityType?: string,
+  ) => {
+    if (typeof entityId !== 'string' || !entityId.trim()) return []
+    if (!Number.isSafeInteger(chapterNumber) || chapterNumber < 1) return []
+    if (entityType !== undefined && typeof entityType !== 'string') return []
+    return AttributeRepository.getPanelState(entityId, chapterNumber, phase, entityType)
+  })
+
+  // ===== P1 数据层：关系网 =====
+  ipcMain.handle('db:relation-list', async (_event, fromId?: string) => {
+    if (fromId !== undefined && (typeof fromId !== 'string' || fromId.length > 200)) return []
+    return RelationRepository.list(fromId)
+  })
+  ipcMain.handle('db:relation-upsert', async (_event, raw: unknown) => {
+    const v = safeValidate(validateEntityRelationInput, raw)
+    if (!v.ok) return { success: false, error: v.error }
+    try {
+      return { success: true, relation: RelationRepository.upsert(v.data) }
+    } catch (err) {
+      return { success: false, error: String(err) }
+    }
+  })
+  ipcMain.handle('db:relation-delete', async (_event, fromId: string, toId: string, relationType: string) => {
+    if ([fromId, toId, relationType].some((s) => typeof s !== 'string' || !s.trim())) {
+      return { success: false, error: 'INVALID_RELATION_KEY' }
+    }
+    try {
+      RelationRepository.delete(fromId, toId, relationType)
+      return { success: true }
+    } catch (err) {
+      return { success: false, error: String(err) }
+    }
+  })
+
+  // ===== P1 数据层：章节流水线 =====
+  ipcMain.handle('db:pipeline-get', async (_event, chapterNumber: number) => {
+    if (!Number.isSafeInteger(chapterNumber) || chapterNumber < 1) return null
+    return PipelineRepository.get(chapterNumber)
+  })
+  ipcMain.handle('db:pipeline-list', async () => PipelineRepository.getAll())
+  ipcMain.handle('db:pipeline-set-stage', async (_event, chapterNumber: number, stage: ChapterStage) => {
+    if (!Number.isSafeInteger(chapterNumber) || chapterNumber < 1) {
+      return { success: false, error: 'INVALID_CHAPTER_NUMBER' }
+    }
+    if (typeof stage !== 'string') return { success: false, error: 'INVALID_CHAPTER_STAGE' }
+    try {
+      return { success: true, state: PipelineRepository.setStage(chapterNumber, stage) }
+    } catch (err) {
+      return { success: false, error: String(err) }
+    }
+  })
+  ipcMain.handle('db:pipeline-rewind', async (_event, chapterNumber: number, expectedStage: ChapterStage) => {
+    if (!Number.isSafeInteger(chapterNumber) || chapterNumber < 1) {
+      return { success: false, error: 'INVALID_CHAPTER_NUMBER' }
+    }
+    if (typeof expectedStage !== 'string') return { success: false, error: 'INVALID_CHAPTER_STAGE' }
+    try {
+      return { success: true, state: PipelineRepository.rewind(chapterNumber, expectedStage) }
+    } catch (err) {
+      return { success: false, error: String(err) }
+    }
+  })
+
+  // ===== P1 数据层：风格档案 =====
+  ipcMain.handle('db:style-list', async () => StyleRepository.list())
+  ipcMain.handle('db:style-get-active', async () => StyleRepository.getActive())
+  ipcMain.handle('db:style-create', async (_event, raw: unknown) => {
+    const v = safeValidate(validateStyleProfileInput, raw)
+    if (!v.ok) return { success: false, error: v.error }
+    try {
+      return { success: true, id: StyleRepository.create(v.data) }
+    } catch (err) {
+      return { success: false, error: String(err) }
+    }
+  })
+  ipcMain.handle('db:style-update', async (_event, id: number, raw: unknown) => {
+    if (!Number.isSafeInteger(id) || id < 1) return { success: false, error: 'INVALID_ID' }
+    const v = safeValidate(validateStyleProfileInput, raw)
+    if (!v.ok) return { success: false, error: v.error }
+    try {
+      StyleRepository.update(id, v.data)
+      return { success: true }
+    } catch (err) {
+      return { success: false, error: String(err) }
+    }
+  })
+  ipcMain.handle('db:style-set-active', async (_event, id: number) => {
+    if (!Number.isSafeInteger(id) || id < 1) return { success: false, error: 'INVALID_ID' }
+    try {
+      StyleRepository.setActive(id)
+      return { success: true }
+    } catch (err) {
+      return { success: false, error: String(err) }
+    }
+  })
+  ipcMain.handle('db:style-delete', async (_event, id: number) => {
+    if (!Number.isSafeInteger(id) || id < 1) return { success: false, error: 'INVALID_ID' }
+    try {
+      StyleRepository.delete(id)
+      return { success: true }
+    } catch (err) {
+      return { success: false, error: String(err) }
+    }
+  })
+
+  // ===== P1 数据层：审稿台账 =====
+  ipcMain.handle('db:review-finding-add', async (_event, raw: unknown) => {
+    const v = safeValidate(validateReviewFindingInput, raw)
+    if (!v.ok) return { success: false, error: v.error }
+    try {
+      return { success: true, id: ReviewFindingRepository.add(v.data) }
+    } catch (err) {
+      return { success: false, error: String(err) }
+    }
+  })
+  ipcMain.handle('db:review-finding-add-many', async (_event, raw: unknown) => {
+    if (!Array.isArray(raw)) return { success: false, error: 'EXPECTED_ARRAY' }
+    if (raw.length > 500) return { success: false, error: 'TOO_MANY_FINDINGS' }
+    const items = []
+    for (let i = 0; i < raw.length; i++) {
+      const v = safeValidate((item) => validateReviewFindingInput(item, `findings[${i}]`), raw[i])
+      if (!v.ok) return { success: false, error: v.error }
+      items.push(v.data)
+    }
+    try {
+      return { success: true, ids: ReviewFindingRepository.addMany(items) }
+    } catch (err) {
+      return { success: false, error: String(err) }
+    }
+  })
+  ipcMain.handle('db:review-finding-list', async (
+    _event,
+    chapterNumber: number,
+    status?: ReviewFindingStatus,
+  ) => {
+    if (!Number.isSafeInteger(chapterNumber) || chapterNumber < 1) return []
+    if (status !== undefined && !(VALID_FINDING_STATUSES as readonly string[]).includes(status)) return []
+    return ReviewFindingRepository.listByChapter(chapterNumber, status)
+  })
+  ipcMain.handle('db:review-finding-update-status', async (_event, id: number, status: ReviewFindingStatus) => {
+    if (!Number.isSafeInteger(id) || id < 1) return { success: false, error: 'INVALID_ID' }
+    if (!(VALID_FINDING_STATUSES as readonly string[]).includes(status)) {
+      return { success: false, error: 'INVALID_FINDING_STATUS' }
+    }
+    try {
+      ReviewFindingRepository.updateStatus(id, status)
+      return { success: true }
+    } catch (err) {
+      return { success: false, error: String(err) }
+    }
+  })
+  ipcMain.handle('db:review-finding-delete', async (_event, id: number) => {
+    if (!Number.isSafeInteger(id) || id < 1) return { success: false, error: 'INVALID_ID' }
+    try {
+      ReviewFindingRepository.delete(id)
+      return { success: true }
+    } catch (err) {
+      return { success: false, error: String(err) }
+    }
+  })
+  ipcMain.handle('db:review-finding-clear-stage', async (_event, chapterNumber: number, stage: string) => {
+    if (!Number.isSafeInteger(chapterNumber) || chapterNumber < 1) {
+      return { success: false, error: 'INVALID_CHAPTER_NUMBER' }
+    }
+    if (typeof stage !== 'string' || !stage) return { success: false, error: 'INVALID_FINDING_STAGE' }
+    try {
+      ReviewFindingRepository.clearChapterStage(chapterNumber, stage)
+      return { success: true }
+    } catch (err) {
+      return { success: false, error: String(err) }
+    }
+  })
+  ipcMain.handle('db:review-finding-count-open-errors', async (_event, chapterNumber: number) => {
+    if (!Number.isSafeInteger(chapterNumber) || chapterNumber < 1) return 0
+    return ReviewFindingRepository.countOpenErrors(chapterNumber)
+  })
+
+  // ===== P3 章节流水线：定稿写回（单事务） =====
+  ipcMain.handle('db:finalize-writeback', async (_event, input: FinalizeWritebackInput) => {
+    return executeFinalizeWriteback(input)
+  })
+
+  // ===== P2 中控 AI：改动计划执行（单事务） =====
+  ipcMain.handle('db:mutation-plan-execute', async (_event, plan: unknown, options?: MutationPlanExecutionOptions) => {
+    const skipStepIds = Array.isArray(options?.skipStepIds)
+      ? options.skipStepIds.filter((id): id is string => typeof id === 'string')
+      : undefined
+    return executeMutationPlan(plan, { skipStepIds })
+  })
+  ipcMain.handle('db:mutation-plan-preview', async (_event, plan: unknown) => {
+    return previewMutationPlan(plan)
   })
 }

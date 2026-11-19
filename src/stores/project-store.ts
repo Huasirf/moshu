@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { ipc } from '../services/ipc-client'
-import type { ProjectData, NovelConfig, FileNode } from '../shared/ipc-channels'
+import type { ProjectData, NovelConfig, FileNode, ProjectRegistryEntry } from '../shared/ipc-channels'
 import { alertError } from '../components/ui/AlertDialog'
 import i18n from '../i18n'
 
@@ -57,6 +57,8 @@ interface ProjectState {
   fileTree: FileNode[]
   /** 最近项目列表 */
   recentProjects: Array<{ name: string; path: string; updatedAt: string }>
+  /** 项目登记表（主页工作台数据源） */
+  registry: ProjectRegistryEntry[]
   /** 是否正在加载 */
   loading: boolean
 
@@ -78,6 +80,18 @@ interface ProjectState {
   refreshFileTree: () => Promise<void>
   /** 加载最近项目 */
   loadRecentProjects: () => Promise<void>
+  /** 加载项目登记表（工作台） */
+  loadRegistry: () => Promise<void>
+  /** 置顶 / 取消置顶项目 */
+  setProjectPinned: (projectPath: string, pinned: boolean) => Promise<void>
+  /** 从工作台移除项目（保留磁盘目录） */
+  forgetProject: (projectPath: string) => Promise<void>
+  /** 仅从最近项目列表移除，不删除磁盘目录 */
+  removeRecentProject: (projectPath: string) => Promise<{ success: boolean; error?: string }>
+  /** 在系统文件管理器中打开项目目录 */
+  revealProject: (projectPath: string) => Promise<{ success: boolean; error?: string }>
+  /** 删除项目（目录移入系统回收站） */
+  deleteProject: (projectPath: string) => Promise<{ success: boolean; error?: string; missing?: boolean }>
   /** 关闭项目 */
   closeProject: () => void
   /** 更新角色状态（内存 + 持久化） */
@@ -88,6 +102,7 @@ export const useProjectStore = create<ProjectState>()((set, get) => ({
   currentProject: null,
   fileTree: [],
   recentProjects: [],
+  registry: [],
   loading: false,
 
   createProject: async (config) => {
@@ -209,6 +224,44 @@ export const useProjectStore = create<ProjectState>()((set, get) => ({
   loadRecentProjects: async () => {
     const list = await ipc.invoke('project:recent-list')
     set({ recentProjects: list })
+  },
+
+  loadRegistry: async () => {
+    try {
+      const list = await ipc.invoke('project:registry-list')
+      set({ registry: list })
+    } catch (e) {
+      console.warn('[Project] 加载项目登记表失败:', e)
+    }
+  },
+
+  setProjectPinned: async (projectPath, pinned) => {
+    await ipc.invoke('project:registry-pin', projectPath, pinned)
+    await get().loadRegistry()
+  },
+
+  forgetProject: async (projectPath) => {
+    await ipc.invoke('project:registry-forget', projectPath)
+    await get().loadRegistry()
+  },
+
+  removeRecentProject: async (projectPath) => {
+    const result = await ipc.invoke('project:remove-recent', projectPath)
+    if (result.success) await get().loadRecentProjects()
+    return result
+  },
+
+  revealProject: async (projectPath) => {
+    return ipc.invoke('project:reveal', projectPath)
+  },
+
+  deleteProject: async (projectPath) => {
+    const isCurrent = get().currentProject?.path === projectPath
+    // 先让渲染层关闭项目，避免主进程释放数据库后仍有页面在读写
+    if (isCurrent) get().closeProject()
+    const result = await ipc.invoke('project:delete', projectPath)
+    if (result.success) await get().loadRecentProjects()
+    return result
   },
 
   closeProject: () => {

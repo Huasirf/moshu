@@ -6,7 +6,7 @@
 import { getProjectDb } from '../database'
 import { safeUnlinkImage } from '../utils/image-file'
 
-/** 角色卡动态状态 */
+/** 角色卡动态状态（固定档案之外的、会随剧情变化的字段） */
 export interface CharacterStateData {
     location: string
     powerLevel: string
@@ -15,7 +15,26 @@ export interface CharacterStateData {
     keyItems: string
     recentEvents: string
     knownInfo?: string
+    /** 天赋 / 体质（结构化，避免与固定档案的「能力」混淆） */
+    talents?: string[]
+    /** 功法 / 技能（结构化） */
+    skills?: string[]
     updatedAtChapter: number
+}
+
+// 动态状态字段白名单（定义在纯函数模块里，便于单测；此处转出保持既有引用可用）
+export { DYNAMIC_STATE_FIELDS } from './character-state-diff'
+export type { DynamicStateField } from './character-state-diff'
+
+/** JSON 数组列的宽松解析：容错旧数据（空串 / 逗号分隔文本 / 非法 JSON） */
+function parseStringArray(raw: unknown): string[] {
+    if (Array.isArray(raw)) return raw.map((item) => String(item).trim()).filter(Boolean)
+    if (typeof raw !== 'string' || !raw.trim()) return []
+    try {
+        const parsed = JSON.parse(raw)
+        if (Array.isArray(parsed)) return parsed.map((item) => String(item).trim()).filter(Boolean)
+    } catch { /* 落到下面的分隔符解析 */ }
+    return raw.split(/[、,，;；/|\n]+/).map((item) => item.trim()).filter(Boolean)
 }
 
 /** 角色卡完整数据（前端驼峰接口） */
@@ -69,6 +88,8 @@ function rowToData(row: Record<string, unknown>): CharacterData {
             keyItems: (row.cs_key_items as string) || '',
             recentEvents: (row.cs_recent_events as string) || '',
             knownInfo: (row.cs_known_info as string) || '',
+            talents: parseStringArray(row.cs_talents_json),
+            skills: parseStringArray(row.cs_skills_json),
             updatedAtChapter: updatedChapter,
         }
     }
@@ -141,8 +162,9 @@ export class CharacterRepository {
         name, role, gender, age, appearance, personality, background,
         abilities, motivation, relationships, arc, notes, speech_style, image_prompt, portrait_path,
         cs_location, cs_power_level, cs_physical_state, cs_mental_state,
-        cs_key_items, cs_recent_events, cs_known_info, cs_updated_at_chapter
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        cs_key_items, cs_recent_events, cs_known_info, cs_talents_json, cs_skills_json,
+        cs_updated_at_chapter
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(name) DO UPDATE SET
         role = excluded.role,
         gender = excluded.gender,
@@ -165,6 +187,8 @@ export class CharacterRepository {
         cs_key_items = excluded.cs_key_items,
         cs_recent_events = excluded.cs_recent_events,
         cs_known_info = excluded.cs_known_info,
+        cs_talents_json = excluded.cs_talents_json,
+        cs_skills_json = excluded.cs_skills_json,
         cs_updated_at_chapter = excluded.cs_updated_at_chapter,
         updated_at = datetime('now')
     `).run(
@@ -190,6 +214,8 @@ export class CharacterRepository {
             cs?.keyItems ?? '',
             cs?.recentEvents ?? '',
             cs?.knownInfo ?? '',
+            JSON.stringify(cs?.talents ?? []),
+            JSON.stringify(cs?.skills ?? []),
             cs?.updatedAtChapter ?? 0,
         )
 
@@ -341,7 +367,8 @@ export class CharacterRepository {
       UPDATE characters SET
         cs_location = ?, cs_power_level = ?, cs_physical_state = ?,
         cs_mental_state = ?, cs_key_items = ?, cs_recent_events = ?,
-        cs_known_info = ?, cs_updated_at_chapter = ?, updated_at = datetime('now')
+        cs_known_info = ?, cs_talents_json = ?, cs_skills_json = ?,
+        cs_updated_at_chapter = ?, updated_at = datetime('now')
       WHERE name = ?
     `).run(
             state.location,
@@ -351,6 +378,8 @@ export class CharacterRepository {
             state.keyItems,
             state.recentEvents,
             state.knownInfo ?? '',
+            JSON.stringify(state.talents ?? []),
+            JSON.stringify(state.skills ?? []),
             state.updatedAtChapter,
             name,
         )

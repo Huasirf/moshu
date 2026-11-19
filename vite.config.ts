@@ -1,4 +1,4 @@
-/// <reference types="vitest/config" />
+﻿/// <reference types="vitest/config" />
 import { defineConfig, type Plugin } from 'vite';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -37,7 +37,7 @@ const PRODUCTION_CSP = [
 /** 只在 vite build 时注入 CSP：开发模式下 HMR / React Refresh 依赖内联脚本与 ws 连接 */
 function contentSecurityPolicy(): Plugin {
   return {
-    name: 'vela-content-security-policy',
+    name: 'moshu-content-security-policy',
     apply: 'build',
     transformIndexHtml: {
       order: 'post',
@@ -100,6 +100,29 @@ export default defineConfig({
   },
   build: {
     rollupOptions: {
+      output: {
+        // 把变化频率低的第三方库拆成稳定 chunk，避免每次业务改动都让用户重下整包。
+        // Vite 8 / rolldown 只接受函数形式，不能用对象映射。
+        manualChunks(id) {
+          const key = id.replace(/\\/g, '/')
+          if (!key.includes('/node_modules/')) return undefined
+          if (/\/node_modules\/(react|react-dom|scheduler|zustand|react-resizable-panels)\//.test(key)) {
+            return 'react-vendor'
+          }
+          if (/\/node_modules\/(i18next|react-i18next|i18next-browser-languagedetector)\//.test(key)) {
+            return 'i18n-vendor'
+          }
+          // 只收 CodeMirror 核心；语言包（@codemirror/lang-*、language-data）保留动态加载，
+          // 否则会把按需语言语法全部塞进首屏 chunk
+          if (/\/node_modules\/(@codemirror\/(state|view|language|commands|search)|@uiw\/react-codemirror|@lezer\/(common|highlight|lr))\//.test(key)) {
+            return 'codemirror-vendor'
+          }
+          if (/\/node_modules\/@radix-ui\//.test(key)) {
+            return 'radix-vendor'
+          }
+          return undefined
+        },
+      },
       onwarn(warning, defaultHandler) {
         // 过滤掉已知的无害警告
         if (warning.code === 'INEFFECTIVE_DYNAMIC_IMPORT') return;

@@ -42,12 +42,79 @@ function classifyIssues(issues: ConsistencyIssue[]): ClassifiedIssue[] {
   return issues.map(i => ({ issue: i, severity: mapSeverity(i) }))
 }
 
+/**
+ * 跨章事实（P3-4）：来自 P1 的 entity_relations 等表，调用方负责把
+ * 实体 ID 解析成可读名称。canon_character_state / canon_items 侧的
+ * 校验仍由 `validateChapter` 负责，这里只补 P1 关系网。
+ */
+export interface CrossChapterRelationFact {
+  fromName: string
+  toName: string
+  relationType: string
+  /** 好感度：负值表示敌对 */
+  affection: number
+  /** active | ended | ... */
+  status: string
+}
+
 export interface GateParams {
   chapterNumber: number
   chapterContent: string
   canon: CanonContext
   isRewrite?: boolean
   maxRepairAttempts?: number
+  /** P3-4：P1 关系网快照，用于跨章关系冲突检查 */
+  relations?: CrossChapterRelationFact[]
+}
+
+const POSITIVE_RELATION_WORDS = ['挚友', '好友', '朋友', '师徒', '夫妻', '兄弟', '盟友', '信任', '亲近', '和好']
+const HOSTILE_RELATION_TYPES = ['敌对', '仇敌', '仇家', '敌人', '宿敌']
+
+/** 找出同时提到两个名字的句子，用于关系冲突取证 */
+function sentencesMentioning(content: string, fromName: string, toName: string): string[] {
+  return content
+    .split(/[。！？\n]+/)
+    .map((s) => s.trim())
+    .filter((s) => s.includes(fromName) && s.includes(toName))
+}
+
+/**
+ * 跨章关系冲突：关系网已标记决裂/敌对，正文却写成正面关系。
+ * 按 DR-04 已定稿方案记 warning（不与道具/视角/时间三类 error 同级）。
+ */
+export function checkCrossChapterRelations(
+  chapterNumber: number,
+  content: string,
+  relations: CrossChapterRelationFact[],
+): ConsistencyIssue[] {
+  const issues: ConsistencyIssue[] = []
+  const seen = new Set<string>()
+
+  for (const relation of relations) {
+    if (!relation.fromName || !relation.toName) continue
+    if (relation.fromName === relation.toName) continue
+
+    const hostile = HOSTILE_RELATION_TYPES.some((word) => relation.relationType.includes(word))
+    const broken = relation.status === 'ended' || relation.affection <= -50
+    if (!hostile && !broken) continue
+
+    for (const sentence of sentencesMentioning(content, relation.fromName, relation.toName)) {
+      if (!POSITIVE_RELATION_WORDS.some((word) => sentence.includes(word))) continue
+      if (seen.has(sentence)) continue
+      seen.add(sentence)
+      issues.push({
+        severity: 'warning',
+        category: 'relationship',
+        message: `关系冲突：「${relation.fromName}」与「${relation.toName}」在关系网中为${
+          broken ? '已决裂/敌对' : '敌对'
+        }（${relation.relationType}），正文却写成正面关系。`,
+        characters: [relation.fromName, relation.toName],
+        chapterNumber,
+        evidence: sentence,
+      })
+    }
+  }
+  return issues
 }
 
 export async function runConsistencyGate(params: GateParams): Promise<GateResult> {
@@ -55,7 +122,12 @@ export async function runConsistencyGate(params: GateParams): Promise<GateResult
   const maxAttempts = params.maxRepairAttempts ?? 3
   const blockingReasons: string[] = []
 
-  const issues = validateChapter({ chapterNumber, chapterContent, canon, isRewrite })
+  const issues = [
+    ...validateChapter({ chapterNumber, chapterContent, canon, isRewrite }),
+    ...(params.relations?.length
+      ? checkCrossChapterRelations(chapterNumber, chapterContent, params.relations)
+      : []),
+  ]
   const classified = classifyIssues(issues)
   const highCount = classified.filter(c => c.severity === 'HIGH').length
 

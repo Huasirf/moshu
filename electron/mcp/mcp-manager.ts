@@ -1,4 +1,4 @@
-/**
+﻿/**
  * MCP（Model Context Protocol）连接管理器
  *
  * 运行在 Electron 主进程，通过 stdio/SSE 管理与外部 MCP Server 的连接。
@@ -121,7 +121,7 @@ class MCPManagerImpl {
 
   /** 获取 MCP 配置文件默认路径 */
   getDefaultConfigPath(): string {
-    return join(app.getPath('home'), '.vela', 'mcp_config.json')
+    return join(app.getPath('home'), '.moshu', 'mcp_config.json')
   }
 
   /**
@@ -336,7 +336,7 @@ class MCPManagerImpl {
       protocolVersion: '2024-11-05',
       capabilities: {},
       clientInfo: {
-        name: 'vela',
+        name: 'moshu',
         version: '1.0.0',
       },
     })

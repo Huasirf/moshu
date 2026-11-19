@@ -49,6 +49,12 @@ interface TimelineRow {
   time_flow: string
   summary: string
   impact: string
+  absolute_time?: string
+  duration?: string
+  source?: string
+  confidence?: number
+  evidence?: string
+  status?: string
   created_at: string
 }
 
@@ -120,6 +126,12 @@ function rowToTimeline(row: TimelineRow): TimelineEvent {
     timeFlow: row.time_flow === 'flashback' ? 'flashback' : 'sequential',
     summary: row.summary,
     impact: row.impact,
+    absoluteTime: row.absolute_time || '',
+    duration: row.duration || '',
+    source: row.source === 'finalize_extract' || row.source === 'manual' ? row.source : 'canon',
+    confidence: row.confidence ?? 1,
+    evidence: row.evidence || '',
+    status: row.status === 'pending' || row.status === 'rejected' ? row.status : 'confirmed',
     createdAt: row.created_at,
   }
 }
@@ -180,14 +192,15 @@ export class CanonRepository {
   // 时间线事件
   // ============================================================
 
-  /** 获取某章及之前的所有事件（按章号+sequence 升序） */
-  static getTimelineUpTo(maxChapter: number, includeFlashback = true): TimelineEvent[] {
+  /** 获取某章及之前的所有事件（按章号+sequence 升序）。默认只返回 confirmed，pending 不参与前情注入。 */
+  static getTimelineUpTo(maxChapter: number, includeFlashback = true, includeUnconfirmed = false): TimelineEvent[] {
     const db = getProjectDb()
     if (!db) return []
     const rows = db.prepare(
       `SELECT * FROM canon_timeline_events
        WHERE chapter_number <= ?
        ${includeFlashback ? '' : "AND time_flow = 'sequential'"}
+       ${includeUnconfirmed ? '' : "AND status = 'confirmed'"}
        ORDER BY chapter_number ASC, sequence ASC`
     ).all(maxChapter) as TimelineRow[]
     return rows.map(rowToTimeline)
@@ -211,14 +224,21 @@ export class CanonRepository {
     if (!db) throw new Error('[CanonRepository] 数据库未连接')
     db.prepare(`
       INSERT INTO canon_timeline_events
-        (chapter_number, sequence, characters, location, time_flow, summary, impact)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+        (chapter_number, sequence, characters, location, time_flow, summary, impact,
+         absolute_time, duration, source, confidence, evidence, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(chapter_number, sequence) DO UPDATE SET
         characters = excluded.characters,
         location = excluded.location,
         time_flow = excluded.time_flow,
         summary = excluded.summary,
-        impact = excluded.impact
+        impact = excluded.impact,
+        absolute_time = excluded.absolute_time,
+        duration = excluded.duration,
+        source = excluded.source,
+        confidence = excluded.confidence,
+        evidence = excluded.evidence,
+        status = excluded.status
     `).run(
       event.chapterNumber,
       event.sequence,
@@ -227,11 +247,44 @@ export class CanonRepository {
       event.timeFlow || 'sequential',
       event.summary || '',
       event.impact || '',
+      event.absoluteTime || '',
+      event.duration || '',
+      event.source || 'canon',
+      event.confidence ?? 1,
+      event.evidence || '',
+      event.status || 'confirmed',
     )
     const row = db.prepare(
       `SELECT id FROM canon_timeline_events WHERE chapter_number = ? AND sequence = ?`
     ).get(event.chapterNumber, event.sequence) as { id: number }
     return row.id
+  }
+
+  /** 删除某章由自动链路产生的事件（旧 canon 与定稿抽取都算自动；manual 保留） */
+  static clearChapterExtractedTimeline(chapterNumber: number): void {
+    const db = getProjectDb()
+    if (!db) return
+    db.prepare(
+      `DELETE FROM canon_timeline_events WHERE chapter_number = ? AND source <> 'manual'`
+    ).run(chapterNumber)
+  }
+
+  /** 更新单条事件的确认状态（面板确认 / 驳回） */
+  static setTimelineEventStatus(id: number, status: 'confirmed' | 'pending' | 'rejected'): boolean {
+    const db = getProjectDb()
+    if (!db) return false
+    const r = db.prepare(`UPDATE canon_timeline_events SET status = ? WHERE id = ?`).run(status, id)
+    return r.changes > 0
+  }
+
+  /** 所有待确认事件（供时间线面板的「待确认」区） */
+  static getPendingTimelineEvents(): TimelineEvent[] {
+    const db = getProjectDb()
+    if (!db) return []
+    const rows = db.prepare(
+      `SELECT * FROM canon_timeline_events WHERE status = 'pending' ORDER BY chapter_number ASC, sequence ASC`
+    ).all() as TimelineRow[]
+    return rows.map(rowToTimeline)
   }
 
   /** 删除某章的全部事件（用于重写某章时清理旧事件） */
@@ -338,6 +391,65 @@ export class CanonRepository {
     )
   }
 
+  /**
+   * 取消定稿回滚角色状态（仅 canon_character_state 的标量字段）。
+   *
+   * 以第 N-1 章角色快照为准恢复 location / powerLevel / physicalState / mentalState /
+   * keyItems / recentEvents；knowledge 与 relationships 只增不减，保留不删（宁可多记，不可遗忘）。
+   * 本章才有状态行且没有 N-1 快照的角色，直接删除该行。
+   */
+  static rollbackCharacterStates(
+    chapterNumber: number,
+    snapshots: Record<string, {
+      location?: string
+      powerLevel?: string
+      physicalState?: string
+      mentalState?: string
+      keyItems?: string
+      recentEvents?: string
+      updatedAtChapter?: number
+    }>,
+  ): { restored: number; deleted: number } {
+    const db = getProjectDb()
+    if (!db) return { restored: 0, deleted: 0 }
+    const rows = db.prepare(
+      `SELECT character FROM canon_character_state WHERE updated_at_chapter = ?`
+    ).all(chapterNumber) as Array<{ character: string }>
+    if (rows.length === 0) return { restored: 0, deleted: 0 }
+
+    const update = db.prepare(`
+      UPDATE canon_character_state SET
+        location = ?, power_level = ?, physical_state = ?, mental_state = ?,
+        key_items = ?, recent_events = ?, updated_at_chapter = ?, updated_at = datetime('now')
+      WHERE character = ?
+    `)
+    const remove = db.prepare('DELETE FROM canon_character_state WHERE character = ?')
+    let restored = 0
+    let deleted = 0
+    db.transaction(() => {
+      for (const row of rows) {
+        const snapshot = snapshots[row.character]
+        if (!snapshot) {
+          remove.run(row.character)
+          deleted++
+          continue
+        }
+        update.run(
+          snapshot.location || '',
+          snapshot.powerLevel || '',
+          snapshot.physicalState || '',
+          snapshot.mentalState || '',
+          snapshot.keyItems || '',
+          snapshot.recentEvents || '',
+          snapshot.updatedAtChapter || Math.max(1, chapterNumber - 1),
+          row.character,
+        )
+        restored++
+      }
+    })()
+    return { restored, deleted }
+  }
+
   // ============================================================
   // 剧情线
   // ============================================================
@@ -413,6 +525,36 @@ export class CanonRepository {
       SET status = 'resolved', resolved_at = ?, last_advanced_at = ?
       WHERE id = ?
     `).run(chapterNumber, chapterNumber, id)
+  }
+
+  /**
+   * 取消定稿回滚本章对剧情线的影响（尽力而为）：
+   *   - 本章新建的剧情线 → 删除
+   *   - 本章标记解决的 → 退回 active，清空 resolved_at，最近推进回退到 N-1
+   *   - 仅在本章推进过的 → 最近推进回退到 N-1（推进后的 current_state 文本无法还原，保持原样）
+   *
+   * 返回被保留但无法完整还原的条数，供上层给出警告。
+   */
+  static revertPlotLinesForChapter(chapterNumber: number): number {
+    const db = getProjectDb()
+    if (!db) return 0
+    const prevChapter = Math.max(1, chapterNumber - 1)
+    let unRestored = 0
+    db.transaction(() => {
+      db.prepare('DELETE FROM canon_plot_lines WHERE started_at = ?').run(chapterNumber)
+      db.prepare(`
+        UPDATE canon_plot_lines
+        SET status = 'active', resolved_at = NULL, last_advanced_at = ?
+        WHERE resolved_at = ?
+      `).run(prevChapter, chapterNumber)
+      const r = db.prepare(`
+        UPDATE canon_plot_lines
+        SET last_advanced_at = ?
+        WHERE last_advanced_at = ? AND started_at <> ?
+      `).run(prevChapter, chapterNumber, chapterNumber)
+      unRestored += r.changes
+    })()
+    return unRestored
   }
 
   // ============================================================
@@ -492,6 +634,20 @@ export class CanonRepository {
   // 分层摘要（卷 / 全书）
   // ============================================================
 
+  /** 删除指定起始章的卷摘要（取消定稿回滚用） */
+  static deleteArcSummary(startChapter: number): void {
+    const db = getProjectDb()
+    if (!db) return
+    db.prepare(`DELETE FROM canon_arc_summaries WHERE level = 'arc' AND start_chapter = ?`).run(startChapter)
+  }
+
+  /** 删除全书摘要（取消定稿后由下一次卷末定稿重算） */
+  static deleteBookSummary(): void {
+    const db = getProjectDb()
+    if (!db) return
+    db.prepare(`DELETE FROM canon_arc_summaries WHERE level = 'book'`).run()
+  }
+
   static upsertArcSummary(summary: ArcSummary): void {
     const db = getProjectDb()
     if (!db) throw new Error('[CanonRepository] 数据库未连接')
@@ -531,6 +687,13 @@ export class CanonRepository {
       `SELECT * FROM canon_chapter_summaries WHERE chapter_number = ?`
     ).get(chapterNumber) as ChapterSummaryRow | undefined
     return row ? rowToSummary(row) : null
+  }
+
+  /** 删除某章的结构化摘要（取消定稿回滚用） */
+  static deleteSummary(chapterNumber: number): void {
+    const db = getProjectDb()
+    if (!db) return
+    db.prepare('DELETE FROM canon_chapter_summaries WHERE chapter_number = ?').run(chapterNumber)
   }
 
   static upsertSummary(summary: ChapterSummary): void {
@@ -583,8 +746,8 @@ export class CanonRepository {
     if (!db) throw new Error('[CanonRepository] 数据库未连接')
 
     const tx = db.transaction(() => {
-      // 1) 清本章 timeline
-      db.prepare(`DELETE FROM canon_timeline_events WHERE chapter_number = ?`)
+      // 1) 清本章 timeline（手工锁定的事件保留，自动抽取与旧 canon 行重建）
+      db.prepare(`DELETE FROM canon_timeline_events WHERE chapter_number = ? AND source <> 'manual'`)
         .run(payload.chapterNumber)
       // 2) 清本章 facts
       db.prepare(`DELETE FROM canon_facts WHERE introduced_at = ?`)

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 渲染进程的 IPC 客户端 — 类型安全的主进程通信封装
  *
  * 用法：
@@ -12,8 +12,8 @@ import type {
   EventChannel,
 } from '../shared/ipc-channels'
 
-/** 从 preload 暴露的 velaAPI */
-interface VelaAPI {
+/** 从 preload 暴露的 moshuAPI */
+interface MoshuAPI {
   invoke: (channel: string, ...args: unknown[]) => Promise<unknown>
   on: (channel: string, callback: (...args: unknown[]) => void) => () => void
   once: (channel: string, callback: (...args: unknown[]) => void) => void
@@ -22,12 +22,12 @@ interface VelaAPI {
   getZoomLevel: () => number
 }
 
-/** 获取 velaAPI（由 preload 注入到 window） */
-function getAPI(): VelaAPI {
-  const api = (window as unknown as { velaAPI: VelaAPI }).velaAPI
+/** 获取 moshuAPI（由 preload 注入到 window） */
+function getAPI(): MoshuAPI {
+  const api = (window as unknown as { moshuAPI: MoshuAPI }).moshuAPI
   if (!api) {
     // 浏览器模式下的降级处理（开发时直接浏览器打开的情况）
-    console.warn('[Vela IPC] velaAPI 未注入，可能不在 Electron 环境中运行')
+    console.warn('[MoShu IPC] moshuAPI 未注入，可能不在 Electron 环境中运行')
     return {
       invoke: async () => { throw new Error('不在 Electron 环境中') },
       on: () => () => {},
@@ -80,7 +80,7 @@ export const ipc = {
 
   /** 是否在 Electron 环境中 */
   get isElectron(): boolean {
-    return !!(window as unknown as { velaAPI: VelaAPI }).velaAPI
+    return !!(window as unknown as { moshuAPI: MoshuAPI }).moshuAPI
   },
 
   /** 设置窗口缩放级别 */

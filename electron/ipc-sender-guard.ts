@@ -1,4 +1,4 @@
-import { ipcMain, type IpcMainInvokeEvent } from 'electron'
+﻿import { ipcMain, type IpcMainInvokeEvent } from 'electron'
 import { pathToFileURL } from 'node:url'
 
 /**
@@ -6,7 +6,7 @@ import { pathToFileURL } from 'node:url'
  *
  * 所有 ipcMain.handle 注册的处理器都只接受来自本应用页面的调用：
  * 开发时是 Vite dev server，打包后是 dist/ 下的 index.html。
- * 窗口被导航到外部页面、或出现意外的子 frame 时，那里的脚本即使拿到 velaAPI 也调不动主进程。
+ * 窗口被导航到外部页面、或出现意外的子 frame 时，那里的脚本即使拿到 moshuAPI 也调不动主进程。
  *
  * 做法是在注册任何处理器之前包一层 ipcMain.handle（之后注册的处理器自动受保护，
  * 各 controller 不用逐个改）。必须在 registerIPCHandlers 之前调用。
@@ -40,8 +40,8 @@ export function computeTrustedPrefixes(devServerUrl: string | undefined, rendere
 function assertTrustedSender(event: IpcMainInvokeEvent, channel: string): void {
   const url = event.senderFrame?.url ?? ''
   if (!isTrustedSenderUrl(url)) {
-    console.warn(`[Vela IPC] 拒绝来自非本应用页面的调用：${channel} ← ${url || '（发送方 frame 已销毁）'}`)
-    throw new Error('IPC 调用被拒绝：发送方不是 Vela 应用页面')
+    console.warn(`[MoShu IPC] 拒绝来自非本应用页面的调用：${channel} ← ${url || '（发送方 frame 已销毁）'}`)
+    throw new Error('IPC 调用被拒绝：发送方不是 墨枢 应用页面')
   }
 }
 

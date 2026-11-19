@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+﻿import { describe, it, expect } from 'vitest'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -92,7 +92,7 @@ describe('分层摘要：写作时的远期记忆', () => {
 
 describe('分层摘要：SQLite 持久化', () => {
   it('卷 / 全书摘要可写入与覆盖；章节摘要按范围读取；旧版 -1 压缩行不再混进最近章节摘要', () => {
-    const projectDir = mkdtempSync(join(tmpdir(), 'vela-arc-'))
+    const projectDir = mkdtempSync(join(tmpdir(), 'moshu-arc-'))
     try {
       initProjectDatabase(projectDir)
       for (const n of [1, 2, 3, 11]) {
