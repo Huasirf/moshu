@@ -1,38 +1,48 @@
 <div align="center">
 
-# 🌌 Vela — AI Novel Writing IDE / AI 小说创作 IDE
+# 墨枢 MoShu — AI 长篇小说创作 IDE
 
-**The next-generation AI-powered novel & fiction writing IDE for web novel authors, indie writers and creative professionals.**
+**基于开源项目 [Vela](https://github.com/zhangzhuowei/vela) 深度二次开发的 AI 小说创作 IDE。**
 
-**为网文作者、独立作家与创意写作者设计的下一代 AI 驱动小说创作集成开发环境。**
+**An AI novel-writing IDE forked from Vela and heavily modified, released under GPL-3.0.**
 
 [![React](https://img.shields.io/badge/React-18-blue.svg)](https://reactjs.org/)
 [![Electron](https://img.shields.io/badge/Electron-Latest-black.svg)](https://www.electronjs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6.svg)](https://www.typescriptlang.org/)
 [![License: GPL-3.0](https://img.shields.io/badge/License-GPLv3-yellow.svg)](https://opensource.org/licenses/GPL-3.0)
 
-[🚀 下载客户端 / Download](#-安装与使用--installation) • [🌟 API 渠道推荐 / Fluxion AI](#fluxion-ai) • [☕ 赞助原作者 / Sponsor](#-赞助与支持原作者--sponsor-the-original-author)
+[🚀 安装与使用 / Installation](#-安装与使用--installation) • [✨ 核心特性 / Features](#-核心特性--key-features) • [🏗️ 技术架构 / Tech Stack](#%EF%B8%8F-技术架构--tech-stack)
 
 </div>
 
-> 💡 **写小说不想折腾 Key？** 试试 [Fluxion AI](https://fluxionai.space/register?source=github&campaign=vela&promo=VELA) —— 一个入口接入并管理全球主流 AI 模型，OpenAI 兼容、开箱即用，**注册即送 $3 API 额度**。👉 [立即领取](https://fluxionai.space/register?source=github&campaign=vela&promo=VELA)
+> 💡 **模型渠道**：本项目支持任意 OpenAI 兼容接口，可在「模型配置」中填入自定义 `Base URL` + `API Key` 使用。
 
 ---
 
-> ### 📌 关于本仓库 / About This Fork
+> ### 📌 关于本仓库 / About This Repository
 >
-> 本仓库是 [heider-x/vela](https://github.com/heider-x/vela) 的**个人修改版**，依照 GPL-3.0 协议继续开源。原项目由 [heider-x](https://github.com/heider-x) 创建并持有版权，本仓库仅包含在其基础上的修改。
+> **墨枢 MoShu** 是 [Vela](https://github.com/zhangzhuowei/vela)（AI 小说创作 IDE）的深度二次开发版本，依照 **GPL-3.0** 协议继续开源。
 >
-> **相对上游的主要改动**（完整记录见 [CHANGELOG.md](CHANGELOG.md)）：
+> **完整署名链 / Attribution chain：**
+> 1. **原始项目**：[heider-x/vela](https://github.com/heider-x/vela) — 由 **heider-x** 创建并持有版权；
+> 2. **直接上游**：[zhangzhuowei/vela](https://github.com/zhangzhuowei/vela) — 本人二次开发所基于的修改版；
+> 3. **本仓库**：Huasirf/moshu — 在 2 的基础上继续修改，改名「墨枢 MoShu」。
 >
-> - **修复写稿字数远低于设定值**：提示词中的字数由弱约束（「大约 N 字左右」）改为硬性下限加目标区间，并将「篇幅要求」与「内容边界」拆分表述；写稿链路新增篇幅闸门，低于目标 90% 时自动续写补足
-> - **修复修稿越修越短**：修稿模板的篇幅条款改为不得少于原稿字数，删减必须在同一处用具体细节补回
-> - **接通创作对话框的「目标字数」**：该字段原先只写入历史记录、从未传入写稿流程，实际生效的一直是全局配置
-> - **修复角色卡提取在长文本下整批失败**：改为自动分批、容错解析被截断的 JSON，且提取失败不再被静默为成功
-> - **新增全局美术风格与反向提示词**、角色专属生图提示词、人设图手动上传
-> - 补全设置面板的 i18n 缺失翻译键与重复字段标签
+> **本仓库相对上游的改动（由本仓库维护者完成）：**
 >
-> Windows 发行版请从**本仓库**的 [Releases](https://github.com/zhangzhuowei/vela/releases) 下载。
+> - **新增时间线模块**：跨章节事件与时序一致性管理
+> - **新增规则参考区**：设定约束的集中管理与检索
+> - **新增素材库**：参考素材的结构化沉淀与召回
+> - **多模型 provider 增强**：Anthropic / Gemini / OpenAI 适配与模型管理
+> - **检索增强**：LanceDB 向量检索、章节检索与设定库（canon）管理优化
+> - **MCP 与安全**：MCP 服务启动与权限审批、路径守卫、数据库自动备份、窗口关闭保护
+> - **工程质量**：为新增与改写模块补齐单元测试（Vitest）并接入 CI
+>
+> 上游既有功能（世界观设定、大纲细纲、起草、重写/精修/审阅三重管线、本地 RAG、多模型 BYOK、MCP 协议等）版权归原作者及各贡献者所有，本仓库在其基础上修改。
+>
+> 本项目不提供募捐入口；如支持原项目，请前往 [heider-x/vela](https://github.com/heider-x/vela)。
+>
+> 原 Vela 的发行版与更新请见上游仓库 [zhangzhuowei/vela/releases](https://github.com/zhangzhuowei/vela/releases)。
 
 ---
 
@@ -178,57 +188,10 @@ Vela 支持接入多种主流 LLM 服务商，以下是快速配置步骤：
 
 ---
 
-<span id="fluxion-ai"></span>
+<span id="about-upstream"></span>
 
-## 🌟 推荐渠道：Fluxion AI — 一个入口，接入并管理全球主流 AI 模型
-
-Fluxion AI 面向个人开发者、技术团队与企业，通过统一 API 接入并管理全球主流 AI 模型；通过多线路动态调度提升可用性，模型表现、响应时间与费用透明可查。使用 Fable 5.1 时，相较 Claude 官方 API 费用，Fluxion AI 最高可节省约 90%。
-
-- ✅ **统一 OpenAI-Compatible API**，完美适配 Vela，开箱即用
-- 🔀 **多线路动态调度**，可用性更高
-- 📊 **模型表现、响应时间与费用透明可查**
-- 🎁 **立即访问并注册，即可获得 $3 API 额度**
-
-👉 **专属链接：[立即注册领取 $3 额度](https://fluxionai.space/register?source=github&campaign=vela&promo=VELA)**
-
-<a href="https://fluxionai.space/register?source=github&campaign=vela&promo=VELA" target="_blank">
-  <img src="https://drive.google.com/thumbnail?id=1nABI15ra_qGKoccMZbJpeMyl6iEFijKe&sz=w1000" width="800" alt="Fluxion AI — 一个入口，接入并管理全球主流 AI 模型"/>
-</a>
-
-> 封面原图：[Google Drive 查看](https://drive.google.com/file/d/1nABI15ra_qGKoccMZbJpeMyl6iEFijKe/view?usp=sharing)
-
----
-
-## 🤝 赞助与支持原作者 / Sponsor the Original Author
-
-> 以下微信群、联系方式、赞助二维码与推荐链接**均属于原项目作者 [heider-x](https://github.com/heider-x)**，随上游 README 一并保留，与本修改版仓库的维护者无关。
->
-> The WeChat group, contact info, donation QR codes and referral links below all belong to the **original author [heider-x](https://github.com/heider-x)**, retained from the upstream README.
-
-Vela 开源版由原作者利用业余时间热情驱动。如果这个工具有效提升了您的小说创作效率，欢迎扫码赞助原作者 ❤️
-
-### 👤 技术交流与合作 / Contact
-
-如果您对本项目的商业化落地（SaaS 授权）、AI 写作技术实现或产品方向感兴趣，可扫码添加**原作者**个人微信：
-
-<p align="left">
-  <img src="public/buyme/wechat.jpg" width="200" alt="原作者个人微信 Original Author WeChat"/>
-</p>
-
-### 💰 赞助二维码 / Donate QR Codes（原作者收款码）
-
-<p align="left">
-  <img src="public/buyme/wepay.jpg" width="200" alt="微信赞助 WeChat Donate"/>
-  &nbsp;&nbsp;&nbsp;
-  <img src="public/buyme/alipay.jpg" width="200" alt="支付宝赞助 Alipay Donate"/>
-</p>
-
-### 🎁 推荐 API 服务商 / Recommended API Providers
-
-以下是经过测试、与 Vela 完美兼容的 API 服务商。**下列为原作者的推荐链接**，使用它们注册可享受专属优惠，同时也是对原项目的支持：
-
-* **智谱 AI (GLM Coding)**：国内顶流编程大模型，20+ 主流工具全适配 👉 [立即参与「拼好模」](https://www.bigmodel.cn/glm-coding?ic=7IJ2G7AE6W)
-* **MiniMax (海螺 AI)**：Token Plan 含语音/视频/生图权益，新用户 **9折** 优惠 👉 [立即订阅](https://platform.minimaxi.com/subscribe/token-plan?code=EjhLD7uCvT&source=link)
+> 说明：本仓库不包含募捐入口与第三方推广链接；原项目的赞助与交流渠道请前往
+> [heider-x/vela](https://github.com/heider-x/vela)。
 
 ---
 
@@ -254,9 +217,9 @@ Vela 开源版由原作者利用业余时间热情驱动。如果这个工具有
 - 🌐 国际化 (i18n) 翻译
 - 📖 文档完善
 
-> 涉及上游项目方向的重大功能重构，请先在上游 [Issues](https://github.com/heider-x/vela/issues) 中与原作者探讨，以避免方向冲突。
+> 涉及上游项目方向的重大功能重构，请先在上游 [heider-x/vela](https://github.com/heider-x/vela) 的 Issues 中与原作者探讨，以避免方向冲突。
 >
-> 仅针对本修改版的问题与建议，请提到[本仓库 Issues](https://github.com/zhangzhuowei/vela/issues)。
+> 仅针对本修改版的问题与建议，请提到[本仓库 Issues](https://github.com/Huasirf/moshu/issues)。
 
 ---
 
@@ -264,9 +227,7 @@ Vela 开源版由原作者利用业余时间热情驱动。如果这个工具有
 
 本项目采用 [GPL-3.0 License](LICENSE) 开源。您可以自由地运行、研究、分享和修改代码，但基于此修改分发的新软件**必须同样遵循 GPL-3.0 协议开源**。
 
-本仓库为 [heider-x/vela](https://github.com/heider-x/vela) 的修改版，版权归原作者及各贡献者所有，修改部分同样以 GPL-3.0 发布。
-
-如需闭源商用授权，请通过微信或邮件联系**原作者**。
+**版权说明**：原始项目 [heider-x/vela](https://github.com/heider-x/vela) 版权归 heider-x 及各贡献者所有；直接上游 [zhangzhuowei/vela](https://github.com/zhangzhuowei/vela) 的修改部分归其维护者所有；本仓库（Huasirf/moshu）的修改部分同样以 GPL-3.0 发布。
 
 ---
 
